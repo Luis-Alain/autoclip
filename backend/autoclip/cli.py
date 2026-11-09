@@ -681,12 +681,14 @@ def update_ytdlp() -> None:
     import sys
 
     console.print("[cyan]Updating yt-dlp...[/cyan]")
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    # Environments made with `uv venv` have no pip, so prefer uv when it's on
+    # PATH and point it at this interpreter explicitly.
+    uv = shutil.which("uv")
+    if uv:
+        command = [uv, "pip", "install", "--python", sys.executable, "--upgrade", "yt-dlp"]
+    else:
+        command = [sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp"]
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         console.print(f"[red]Update failed.[/red]\n{result.stderr}")
         raise typer.Exit(1)

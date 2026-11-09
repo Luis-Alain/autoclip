@@ -63,3 +63,20 @@ def test_config_set_rejects_invalid_values() -> None:
     result = runner.invoke(app, ["config", "set", "active_provider", "not-a-provider"])
     assert result.exit_code == 2
     assert config.load().active_provider != "not-a-provider"
+
+
+# -- yt-dlp cookie errors ---------------------------------------------------
+
+
+def test_missing_cookie_database_gets_an_actionable_hint() -> None:
+    from autoclip.config import IngestSettings
+    from autoclip.pipeline.ingest import _translate_ytdlp_error
+
+    exc = Exception(
+        '\x1b[0;31mERROR:\x1b[0m could not find chrome cookies database in "/Users/x/Chrome"'
+    )
+    error = _translate_ytdlp_error(exc, IngestSettings(cookies_from_browser="chrome"))
+    text = str(error)
+    assert "Could not read YouTube cookies from chrome" in text
+    assert "autoclip config set ingest.cookies_from_browser" in text
+    assert "\x1b[" not in text

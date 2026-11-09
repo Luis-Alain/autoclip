@@ -156,7 +156,26 @@ def ingest_youtube(
 
 def _translate_ytdlp_error(exc: Exception, settings: IngestSettings) -> IngestError:
     """Turn a yt-dlp failure into something the user can act on."""
-    message = str(exc).lower()
+    # yt-dlp colours its own "ERROR:" prefix; strip the escape codes so the
+    # message reads cleanly inside our panel.
+    clean = re.sub(r"\x1b\[[0-9;]*m", "", str(exc))
+    message = clean.lower()
+
+    if "cookies database" in message or ("could not copy" in message and "cookie" in message):
+        browser = settings.cookies_from_browser or "the browser"
+        return IngestError(
+            f"Could not read YouTube cookies from {browser}.",
+            hint=(
+                f"yt-dlp found no cookie database for '{browser}'. Use the browser you are "
+                "actually signed in to YouTube with:\n"
+                "  autoclip config set ingest.cookies_from_browser firefox   "
+                "(or brave, edge, vivaldi, opera, safari, chrome)\n"
+                "Or clear it to try without cookies:\n"
+                '  autoclip config set ingest.cookies_from_browser ""\n'
+                "Safari needs Full Disk Access for your terminal app "
+                "(System Settings → Privacy & Security)."
+            ),
+        )
 
     if any(marker in message for marker in _BOT_CHECK_MARKERS):
         if settings.cookies_from_browser:
@@ -194,7 +213,7 @@ def _translate_ytdlp_error(exc: Exception, settings: IngestSettings) -> IngestEr
         hint=(
             "YouTube changes frequently and yt-dlp is updated often. Try "
             "`autoclip update-ytdlp` to pull the latest version.\n\n"
-            f"Original error: {exc}"
+            f"Original error: {clean}"
         ),
     )
 
