@@ -140,6 +140,9 @@ def raw(
     if vertical:
         console.print(f"[green]9:16 clips:[/green] {result.folder / 'vertical'}")
     console.print(f"[green]Manifest:[/green]   {result.folder / 'manifest.csv'}")
+    console.print(
+        f"[green]Premiere:[/green]   {result.folder / 'timeline.xml'}  [dim](File → Import)[/dim]"
+    )
 
 
 def _setup_logging(directory: Path) -> Path:

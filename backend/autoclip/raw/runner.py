@@ -8,6 +8,7 @@
       clips/               raw 16:9 with handles
       vertical/            9:16 with burned-in captions
       manifest.json/.csv   one row per clip
+      timeline.xml         Premiere sequence of the raw clips (FCP7 xmeml)
       logs/                run log, including every ffmpeg command
 
 Resuming: each stage is skipped when its artifact exists. Changing the
@@ -29,6 +30,7 @@ from ..pipeline.prepare import Silence
 from ..pipeline.transcript import Transcript
 from ..providers import build_provider
 from ..system import report
+from .export_premiere import write_timeline
 from .export_raw import export_raw_clip, plan_cut, raw_filename
 from .export_vertical import export_vertical_clip, vertical_filename
 from .manifest import excerpt, write_manifest
@@ -126,6 +128,7 @@ class RawRunner:
         rows = self._export_raw(clips, transcript)
         # Written now, so the raw clips are documented even if a 9:16 render fails.
         write_manifest(rows, self.folder)
+        self._timeline(rows)
         self._export_vertical(clips, transcript, rows)
         write_manifest(rows, self.folder)
         self._report("vertical", 1.0, "Done")
@@ -268,6 +271,19 @@ class RawRunner:
             )
         self._finish("clips")
         return rows
+
+    def _timeline(self, rows: list[ManifestRow]) -> None:
+        """Premiere timeline of the raw clips. Cheap, so always regenerated."""
+        if not rows:
+            return
+        write_timeline(
+            rows,
+            self.folder,
+            name=f"{self.source.title or self.source.vod_id} (autoclip)",
+            width=self.source.width or 1920,
+            height=self.source.height or 1080,
+            fps=self.source.fps,
+        )
 
     def _export_vertical(
         self, clips: list[RawClip], transcript: Transcript, rows: list[ManifestRow]

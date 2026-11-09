@@ -156,7 +156,7 @@ Campaign profiles live in `campaigns/<name>.yaml`: `min_len, max_len, allowed_pl
 | M1 | Raw export on a local file | ✅ Done: `autoclip raw video.mp4 --chat none` produces ranked 16:9 clips with handles and a manifest |
 | M1b | Vertical export | ✅ Done: the same command also writes `vertical/*.mp4`: 9:16, speaker-tracked, burned-in captions in the transcript's language, listed in the manifest (`vertical_file`) |
 | M2 | mlx-whisper backend | ✅ Done early (commit `ffcde3a`): mlx-whisper large-v3-turbo on the Apple GPU, VideoToolbox encode, language verification |
-| M3 | Premiere XML | `timeline.xml` imports cleanly into Premiere, with markers |
+| M3 | Premiere XML | 🟡 Implemented (hand-written xmeml, chosen over the auto-editor round-trip: no extra dependency, full control of markers). Awaiting acceptance: `timeline.xml` imports cleanly into Premiere, with markers |
 | M4 | Chat spikes | On a Twitch VOD with chat, only spike windows are transcribed. Output is logged as minutes processed vs total minutes |
 | M5 | URL ingest + partial download | A Twitch or YouTube URL works end to end without downloading the full VOD |
 | M6 | Campaign profiles | Length limits and credit text come from YAML |
