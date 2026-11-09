@@ -96,6 +96,10 @@ fetch → spikes → windows → transcribe → highlights → export_vertical �
 - Filename: `{rank:02d}_s{score}_{slug(hook_title)}.mp4`, ASCII-safe slug, in `clips/`.
 - Write `manifest.json` and `manifest.csv` with: rank, file, abs_start, abs_end, duration, score, hook_title, reason, needs_context, chat_score, transcript_excerpt, source_url, campaign.
 
+### 5b. layouts for gameplay streams (new, M7)
+- Detect the webcam overlay once per VOD (`raw/layout.py`): MediaPipe faces vote on where the recurring face is; per-pixel temporal variation (game busy, room calm) finds the overlay's edges. Fallback: a box around the face. Cached in `work/layout.json`; override with `--cam x,y,w,h`. Previews: `layout_detect.jpg`, `layout_preview.jpg`.
+- Per clip, `--layout auto` picks: **split** (webcam top 35% / gameplay bottom 65%, captions on the seam) when the overlay is on screen; **blur** (whole 16:9 game centred over a blurred fill, captions below it) for gameplay without the webcam; **face** (upstream speaker-tracked crop) for talking-head scenes in VODs without an overlay. `--layout split|blur|face` forces one. Decisions are Luis's (2026-11-08).
+
 ### 6. export_premiere (new)
 - Write `timeline.xml` in **FCP7 XML (xmeml)**, which Premiere Pro imports via File → Import.
 - One sequence matching the clips' frame rate and resolution (1080×1920). Clips go in rank order, whole, with a 1-second gap between them.
@@ -113,6 +117,8 @@ autoclip raw <url-or-file> \
   --min 15 --max 60 \
   --provider ollama|gemini|openai \
   --style <caption-style> \
+  --layout auto|split|blur|face \
+  --cam x,y,w,h \
   --out ./out
 ```
 
@@ -142,6 +148,7 @@ Campaign profiles live in `campaigns/<name>.yaml`: `min_len, max_len, allowed_pl
 | M4 | Chat spikes | On a Twitch VOD with chat, only spike windows are transcribed. Output is logged as minutes processed vs total minutes |
 | M5 | URL ingest + partial download | A Twitch or YouTube URL works end to end without downloading the full VOD |
 | M6 | Campaign profiles | Length limits and credit text come from YAML |
+| M7 | Gameplay layouts | ✅ Done: webcam overlay auto-detected; split / blur / face chosen per clip. Verified on a GTA V VOD (JuegaGerman, webcam top-right) |
 
 Work milestone by milestone. Commit after each one with a clear message.
 

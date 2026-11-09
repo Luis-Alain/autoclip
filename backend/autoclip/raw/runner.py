@@ -2,7 +2,9 @@
 
     <out>/<date>_<channel>_<vod-id>/
       source.json          the VOD's metadata
-      work/                audio.wav, silences.json, crop paths, caption files
+      layout_detect.jpg    the detected webcam (green) and crops, on a source frame
+      layout_preview.jpg   one 9:16 split frame, to check the crops by eye
+      work/                audio.wav, silences.json, layout.json, crops, captions
       transcript/full.json word-level transcript (absolute seconds)
       highlights.json      the ranked selection + the params that produced it
       clips/               9:16, speaker-tracked, burned-in captions
@@ -22,6 +24,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from ..config import Settings
 from ..pipeline import captions, prepare, transcribe
@@ -30,7 +33,9 @@ from ..pipeline.transcript import Transcript
 from ..providers import build_provider
 from ..system import report
 from .export_premiere import write_timeline
+from .export_split import export_composite_clip, render_detection, render_preview
 from .export_vertical import clip_filename, export_vertical_clip, is_vertical_file
+from .layout import Layout, Rect, clip_shows_cam, clip_shows_face, detect_layout
 from .manifest import excerpt, write_manifest
 from .models import HighlightsArtifact, ManifestRow, RawClip, SourceInfo, read_model, write_model
 from .select import PROMPT_VERSION, select_clips
@@ -41,9 +46,12 @@ log = logging.getLogger(__name__)
 WEIGHTS = {
     "prepare": 0.05,
     "transcribe": 0.35,
-    "highlights": 0.25,
+    "highlights": 0.20,
+    "layout": 0.05,
     "clips": 0.35,
 }
+
+LayoutMode = Literal["auto", "split", "blur", "face"]
 
 #: (overall 0..1, message)
 ProgressFn = Callable[[float, str], None]
@@ -61,6 +69,11 @@ class RawOptions:
     max_s: float = 60.0
     provider: str | None = None
     style: str = ""
+    #: auto: split where the webcam overlay is on screen, blur for gameplay
+    #: without it, face crop for talking-head scenes. Or force one of them.
+    layout: LayoutMode = "auto"
+    #: Manual webcam rectangle in source pixels; skips detection.
+    cam: Rect | None = None
 
 
 @dataclass
@@ -131,7 +144,8 @@ class RawRunner:
         transcript = self._transcribe(audio)
         silences = self._silences(audio)
         clips = await self._highlights(transcript, silences)
-        rows = self._export(clips, transcript)
+        layout = self._layout()
+        rows = self._export(clips, transcript, layout)
         write_manifest(rows, self.folder)
         self._timeline(rows)
         self._report("clips", 1.0, "Done")
@@ -225,31 +239,111 @@ class RawRunner:
         self._finish("highlights")
         return clips
 
-    def _export(self, clips: list[RawClip], transcript: Transcript) -> list[ManifestRow]:
+    def _layout(self) -> Layout:
+        """Where the webcam overlay is (if any). Cached in work/layout.json.
+
+        Precedence: --cam (saved, and reused by later runs) > cached result >
+        fresh detection. --layout face skips all of it without touching the cache.
+        """
+        path = self.work / "layout.json"
+        info = self.source
+        width, height = info.width or 1920, info.height or 1080
+
+        if self.options.layout in ("face", "blur"):
+            # Neither needs the webcam position.
+            self._finish("layout")
+            return Layout(frame_w=width, frame_h=height)
+
+        if self.options.cam is not None:
+            cam = self.options.cam
+            layout = Layout(
+                frame_w=width,
+                frame_h=height,
+                cam=cam,
+                face_cx=cam.x + cam.w / 2,
+                face_cy=cam.y + cam.h / 2,
+                method="manual",
+            )
+            write_model(path, layout)
+        elif path.exists():
+            log.info("Reusing %s", path)
+            layout = read_model(path, Layout)
+        else:
+            self._report("layout", 0.0, "Finding the webcam")
+            layout = detect_layout(
+                self.source_path, duration_s=info.duration_s, frame_w=width, frame_h=height
+            )
+            write_model(path, layout)
+
+        if layout.cam is not None:
+            at = info.duration_s * 0.3
+            render_detection(self.source_path, layout, at, self.folder / "layout_detect.jpg")
+            render_preview(self.source_path, layout, at, self.folder / "layout_preview.jpg")
+        elif self.options.layout == "split":
+            raise RunError(
+                "--layout split needs a webcam overlay, but none was found. Pass its "
+                "position with --cam x,y,w,h (source pixels), or use --layout face."
+            )
+        self._finish("layout")
+        return layout
+
+    def _clip_mode(self, clip: RawClip, layout: Layout) -> str:
+        """Pick split, blur or face for one clip (see RawOptions.layout)."""
+        if self.options.layout != "auto":
+            return self.options.layout
+        if layout.cam is not None:
+            # A gameplay stream with a webcam overlay: split while the webcam is
+            # on screen, blur for moments where it isn't (scene switches).
+            shown = clip_shows_cam(self.source_path, layout, clip.start_s, clip.end_s)
+            return "split" if shown else "blur"
+        # No overlay: a camera scene gets the face crop, pure gameplay the blur.
+        talking = clip_shows_face(self.source_path, layout, clip.start_s, clip.end_s)
+        return "face" if talking else "blur"
+
+    def _export(
+        self, clips: list[RawClip], transcript: Transcript, layout: Layout
+    ) -> list[ManifestRow]:
         style = captions.get_style(self.options.style or self.settings.export.caption_style)
         export_settings = self.settings.export.model_copy(update={"ratio": "9:16"})
+
+        # Which layout each rendered file was made with, so a file is re-rendered
+        # when its layout changes between runs (e.g. --layout face -> auto).
+        rendered_path = self.work / "rendered.json"
+        rendered: dict[str, str] = (
+            json.loads(rendered_path.read_text(encoding="utf-8")) if rendered_path.exists() else {}
+        )
 
         rows: list[ManifestRow] = []
         for index, clip in enumerate(clips):
             name = clip_filename(clip.rank, clip.score, clip.hook_title)
             destination = self.folder / "clips" / name
-            message = f"Rendering clip {index + 1}/{len(clips)}"
+            mode = self._clip_mode(clip, layout)
+            message = f"Rendering clip {index + 1}/{len(clips)} ({mode})"
 
-            if destination.exists() and is_vertical_file(destination):
+            def progress(f: float, i: int = index, m: str = message) -> None:
+                self._report("clips", (i + f) / len(clips), m)
+
+            if (
+                destination.exists()
+                and rendered.get(name, "face") == mode
+                and is_vertical_file(destination)
+            ):
                 log.info("Reusing %s", destination)
+            elif mode in ("split", "blur"):
+                export_composite_clip(
+                    self.source_path, destination, clip, transcript, layout,
+                    mode=mode,  # type: ignore[arg-type]
+                    style=style, settings=export_settings, work_dir=self.work,
+                    on_progress=progress,
+                )  # fmt: skip
             else:
                 export_vertical_clip(
-                    self.source_path,
-                    destination,
-                    clip,
-                    transcript,
-                    style=style,
-                    settings=export_settings,
-                    work_dir=self.work,
-                    on_progress=lambda f, i=index, m=message: self._report(
-                        "clips", (i + f) / len(clips), m
-                    ),
-                )
+                    self.source_path, destination, clip, transcript,
+                    style=style, settings=export_settings, work_dir=self.work,
+                    on_progress=progress,
+                )  # fmt: skip
+            rendered[name] = mode
+            rendered_path.write_text(json.dumps(rendered, indent=2), encoding="utf-8")
 
             rows.append(
                 ManifestRow(
@@ -262,6 +356,7 @@ class RawRunner:
                     hook_title=clip.hook_title,
                     reason=clip.reason,
                     needs_context=clip.needs_context,
+                    layout=mode,
                     transcript_excerpt=excerpt(
                         transcript.text_between(clip.start_word, clip.end_word)
                     ),

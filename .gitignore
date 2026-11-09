@@ -52,3 +52,5 @@ desktop.ini
 # Local test media and raw-pipeline output
 samples/
 out/
+
+sample/

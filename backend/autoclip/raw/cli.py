@@ -30,6 +30,16 @@ def raw(
         "", "--provider", "-p", help="LLM provider (ollama, gemini, openai, anthropic)."
     ),
     style: str = typer.Option("", "--style", "-s", help="Caption style (see `autoclip styles`)."),
+    layout: str = typer.Option(
+        "auto",
+        "--layout",
+        help="auto: split (webcam over gameplay) where the webcam overlay is on screen, "
+        "blur (whole game over a blurred background) for gameplay without it, face "
+        "(speaker-tracked crop) for talking-head scenes. Or force split, blur or face.",
+    ),
+    cam: str = typer.Option(
+        "", "--cam", help="Webcam rectangle as x,y,w,h in source pixels (skips detection)."
+    ),
     out: Path = typer.Option(Path("out"), "--out", "-o", help="Output directory."),
 ) -> None:
     """Find the best moments in a VOD and export them as 9:16 clips with captions."""
@@ -43,6 +53,16 @@ def raw(
     if min_s >= max_s:
         console.print("[red]--min must be smaller than --max.[/red]")
         raise typer.Exit(2)
+    if layout not in ("auto", "split", "blur", "face"):
+        console.print("[red]--layout must be auto, split, blur or face.[/red]")
+        raise typer.Exit(2)
+    from .layout import Rect
+
+    try:
+        cam_rect = Rect.parse(cam) if cam else None
+    except ValueError as exc:
+        console.print(f"[red]--cam: {exc}[/red]")
+        raise typer.Exit(2) from exc
 
     settings = config.load()
     # Absolute: upstream's caption export runs ffmpeg from another working
@@ -71,6 +91,8 @@ def raw(
         max_s=max_s,
         provider=provider or None,
         style=style,
+        layout=layout,  # type: ignore[arg-type]  # validated above
+        cam=cam_rect,
     )
 
     from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
@@ -112,14 +134,16 @@ def raw(
     table.add_column("Score", width=5)
     table.add_column("Length", width=6)
     table.add_column("At", width=8)
+    table.add_column("Layout", width=6)
     table.add_column("Title")
-    for clip in result.clips:
+    for clip, row in zip(result.clips, result.rows, strict=True):
         title = clip.hook_title + (" [dim](needs context)[/dim]" if clip.needs_context else "")
         table.add_row(
             str(clip.rank),
             str(clip.score),
             f"{clip.duration_s:.0f}s",
             _clock(clip.start_s),
+            row.layout,
             title,
         )
     console.print()
@@ -127,6 +151,11 @@ def raw(
     for warning in result.warnings:
         console.print(f"[yellow]Note:[/yellow] {warning}")
     console.print(f"\n[green]Clips (9:16):[/green] {result.folder / 'clips'}")
+    if (result.folder / "layout_preview.jpg").exists():
+        console.print(
+            f"[green]Webcam:[/green]       {result.folder / 'layout_detect.jpg'}  "
+            "[dim](check the green box; fix with --cam x,y,w,h)[/dim]"
+        )
     console.print(f"[green]Manifest:[/green]     {result.folder / 'manifest.csv'}")
     console.print(
         f"[green]Premiere:[/green]     {result.folder / 'timeline.xml'}  [dim](File → Import)[/dim]"

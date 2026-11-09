@@ -76,6 +76,8 @@ class ManifestRow(BaseModel):
     hook_title: str
     reason: str
     needs_context: bool
+    #: "split" (webcam over gameplay) or "face" (speaker-tracked single crop).
+    layout: str = "face"
     chat_score: float | None = None
     transcript_excerpt: str
     language: str
