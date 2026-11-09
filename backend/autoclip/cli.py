@@ -518,12 +518,11 @@ def clip(
     ),
 ) -> None:
     """Turn a video into captioned vertical clips."""
-    import asyncio
 
     from . import db
     from .db import store
     from .db.models import Job, new_id
-    from .pipeline import ingest, runner
+    from .pipeline import ingest
 
     db.init()
     settings = config.load()
@@ -569,8 +568,20 @@ def clip(
         )
     )
 
-    # --- run ------------------------------------------------------------
+    _run_and_report(job, source, settings)
+
+
+def _run_and_report(job, source, settings) -> None:  # type: ignore[no-untyped-def]
+    """Run a job with a progress bar, then print the clip table.
+
+    Shared by ``clip`` and ``retry``. Stages whose artifacts already exist in
+    the job's work dir are skipped, which is what makes ``retry`` cheap.
+    """
+    import asyncio
+
     from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
+
+    from .pipeline import runner
 
     with Progress(
         SpinnerColumn(),
@@ -590,13 +601,17 @@ def clip(
             )
         except KeyboardInterrupt:
             console.print("\n[yellow]Cancelled.[/yellow]")
+            console.print(f"Resume with [cyan]autoclip retry {job.id}[/cyan].")
             raise typer.Exit(130) from None
         except Exception as exc:
             progress.stop()
             console.print(f"\n[red]Pipeline failed.[/red] {exc}")
+            console.print(
+                f"\nResume from the failed stage with [cyan]autoclip retry {job.id}[/cyan] "
+                "— finished stages (audio, transcript, highlights) are reused."
+            )
             raise typer.Exit(1) from exc
 
-    # --- report ---------------------------------------------------------
     table = Table(title=f"{len(clips)} clips", header_style="bold", title_justify="left")
     table.add_column("#", width=3)
     table.add_column("Score", width=5)
@@ -609,6 +624,29 @@ def clip(
     console.print()
     console.print(table)
     console.print(f"\n[green]Exported to[/green] {paths.exports_dir() / job.id}")
+
+
+@app.command()
+def retry(job_id: str = typer.Argument(..., help="Job ID, as shown by `autoclip jobs`.")) -> None:
+    """Resume a failed or cancelled job from the stage where it stopped."""
+    from . import db
+    from .db import store
+
+    db.init()
+    job = store.get_job(job_id)
+    if job is None:
+        console.print(f"[red]No job {job_id}.[/red] See [cyan]autoclip jobs[/cyan].")
+        raise typer.Exit(2)
+    source = store.get_source(job.source_id)
+    if source is None:
+        console.print(f"[red]The source for job {job_id} no longer exists.[/red]")
+        raise typer.Exit(1)
+
+    # Re-run with the settings the job started with, so a resumed job can't
+    # silently mix two configurations.
+    settings = config.Settings.model_validate(job.settings) if job.settings else config.load()
+    console.print(f"[green]Resuming[/green] {job_id} ({source.title})")
+    _run_and_report(job, source, settings)
 
 
 @app.command()

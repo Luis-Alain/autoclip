@@ -37,8 +37,7 @@ def test_context_size_is_capped() -> None:
 def test_config_set_string_and_nested_values() -> None:
     assert runner.invoke(app, ["config", "set", "active_provider", "ollama"]).exit_code == 0
     assert (
-        runner.invoke(app, ["config", "set", "providers.ollama.model", "qwen2.5:7b"]).exit_code
-        == 0
+        runner.invoke(app, ["config", "set", "providers.ollama.model", "qwen2.5:7b"]).exit_code == 0
     )
     assert runner.invoke(app, ["config", "set", "whisper.language", "es"]).exit_code == 0
 

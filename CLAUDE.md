@@ -6,11 +6,16 @@ This is a fork of [artbyjazi/autoclip](https://github.com/artbyjazi/autoclip) (M
 
 We are repurposing it. The goal is **not** finished 9:16 shorts. The goal is to:
 
-> Take a long stream VOD (1–6 h, Twitch / Kick / YouTube), find the best moments automatically, and export them as **raw, uncropped, uncaptioned 16:9 clips plus a Premiere Pro XML timeline**. The owner then adds VFX, captions and hooks by hand in Premiere.
+> Take a long stream VOD (1–6 h, Twitch / Kick / YouTube), find the best moments automatically, and export **two versions of every clip**:
+>
+> 1. **Vertical 9:16 with burned-in captions**, ready to post on social media (reuses upstream's speaker-tracked reframe and animated captions).
+> 2. **Raw, uncropped, uncaptioned 16:9 with handles, plus a Premiere Pro XML timeline**, for when the owner wants to add VFX, captions and hooks by hand in Premiere.
+
+*Decision (2026-11-08): Luis asked for 9:16 captioned output in addition to the raw/Premiere export. Both are produced by default.*
 
 The clips are for official clip campaigns: Content Rewards (Whop), Vyro, and streamer Discord programs. These pay per verified view. Source footage always comes from campaigns that authorize clipping.
 
-The time we save is the slow part: watching hours of VOD, picking moments, and cutting them. The creative layer stays manual on purpose. Platforms suppress clips that add nothing original, so the human edit is what makes the clips earn.
+The time we save is the slow part: watching hours of VOD, picking moments, and cutting them. The vertical version gives a fast, postable baseline; the raw version keeps the manual creative layer available, because platforms suppress clips that add nothing original and a human edit is what makes the best clips earn.
 
 ## Owner context
 
@@ -23,7 +28,7 @@ The time we save is the slow part: watching hours of VOD, picking moments, and c
 
 ## Non-goals (do not build)
 
-- 9:16 reframing, face tracking, burned-in captions, B-roll, music. Keep upstream's code for these, but don't use it in our pipeline.
+- B-roll, music, auto-generated VFX.
 - Auto-posting to TikTok, YouTube or Instagram, and anything that games views or engagement.
 - Live-stream processing. VODs only.
 
@@ -48,10 +53,12 @@ Show Luis the notes and a short plan before the first big change.
 
 ```
 fetch → spikes → windows → transcribe → highlights → export_raw → export_premiere
-        (new)    (new)     (new backend) (reuse)     (new)        (new)
+        (new)    (new)     (mlx, done)   (reuse)     (new)        (new)
+                                                   ↘ export_vertical
+                                                     (reuse upstream reframe + captions + export)
 ```
 
-Our pipeline ends after `highlights`. Upstream's `reframe` and `captions` stages are not called.
+`export_vertical` runs upstream's `reframe` (MediaPipe face tracking) and caption burn-in (libass, `--style`) on the same ranked clips, at 9:16, encoded with VideoToolbox. Captions use the clip's word timings from the transcript, in the transcript's language.
 
 ### 0. fetch
 - Input: a URL (Twitch/Kick/YouTube VOD) or a local video file.
@@ -120,6 +127,8 @@ autoclip raw <url-or-file> \
   --handles 4 \
   --provider ollama|gemini|openai \
   --prores \
+  --vertical/--no-vertical \
+  --style <caption-style> \
   --out ./out
 ```
 
@@ -127,7 +136,8 @@ Output layout:
 
 ```
 out/<date>_<channel>_<vod-id>/
-  clips/01_s92_el-grito-de-xqc.mp4 ...
+  clips/01_s92_el-grito-de-xqc.mp4 ...         (raw 16:9 with handles)
+  vertical/01_s92_el-grito-de-xqc_9x16.mp4 ...  (9:16, burned-in captions, ready to post)
   timeline.xml
   manifest.json
   manifest.csv
@@ -143,8 +153,9 @@ Campaign profiles live in `campaigns/<name>.yaml`: `min_len, max_len, allowed_pl
 | # | Milestone | Done when |
 |---|---|---|
 | M0 | Architecture notes | `docs/ARCHITECTURE_NOTES.md` exists and Luis has approved the plan |
-| M1 | Raw export on a local file | `autoclip raw video.mp4 --chat none` produces ranked 16:9 clips with handles and a manifest, using upstream transcription |
-| M2 | mlx-whisper backend | Transcribing a 1 h Spanish file on the M4 is faster than upstream's default, and word timestamps line up |
+| M1 | Raw export on a local file | `autoclip raw video.mp4 --chat none` produces ranked 16:9 clips with handles and a manifest |
+| M1b | Vertical export | The same command also writes `vertical/*.mp4`: 9:16, speaker-tracked, burned-in captions in the transcript's language, listed in the manifest (`vertical_file`) |
+| M2 | mlx-whisper backend | ✅ Done early (commit `ffcde3a`): mlx-whisper large-v3-turbo on the Apple GPU, VideoToolbox encode, language verification |
 | M3 | Premiere XML | `timeline.xml` imports cleanly into Premiere, with markers |
 | M4 | Chat spikes | On a Twitch VOD with chat, only spike windows are transcribed. Output is logged as minutes processed vs total minutes |
 | M5 | URL ingest + partial download | A Twitch or YouTube URL works end to end without downloading the full VOD |

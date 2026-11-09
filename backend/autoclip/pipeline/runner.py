@@ -367,6 +367,9 @@ class PipelineRunner:
 
         for index, clip in enumerate(clips):
             self._check_cancelled()
+            # Recreated per clip: if the folder is deleted mid-export (say, from
+            # Finder), the next clip still has somewhere to go.
+            destination_dir.mkdir(parents=True, exist_ok=True)
 
             crop_path = crop_paths.get(clip.id) or self._fallback_crop_path(clip, ratio)
             words = transcript.slice(clip.start_word, clip.end_word)
