@@ -259,7 +259,9 @@ def probe_gpu() -> GPUInfo:
 
     if sys.platform == "darwin" and platform.machine() == "arm64":
         info.accel = "mps"
-        info.name = platform.processor() or "Apple Silicon"
+        # platform.processor() returns just "arm" on macOS; sysctl has the real
+        # chip name ("Apple M4").
+        info.name = _run(["sysctl", "-n", "machdep.cpu.brand_string"]).strip() or "Apple Silicon"
         return info
 
     if shutil.which("nvidia-smi"):

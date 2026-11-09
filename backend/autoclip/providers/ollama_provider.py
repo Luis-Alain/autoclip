@@ -24,11 +24,37 @@ DEFAULT_BASE_URL = "http://localhost:11434"
 #: judgement to rank clips sensibly. Below roughly 7B, selection quality falls
 #: off sharply even when the JSON stays valid.
 RECOMMENDED_MODELS = [
-    "llama3.1:8b",
+    # Strong multilingual (Spanish) instruction following, fits a 16 GB Mac.
+    "qwen2.5:7b",
     "qwen2.5:14b",
+    "llama3.1:8b",
     "mistral-nemo:12b",
     "gemma2:9b",
 ]
+
+#: Ollama's default context is only a few thousand tokens, and it truncates a
+#: longer prompt silently, from the front. An 8-minute window rendered as
+#: ``[index]word`` is roughly 6-9k tokens, so without an explicit ``num_ctx``
+#: the model never sees the start of the transcript (or the instructions).
+_CTX_STEP = 4096
+_CTX_MIN = 8192
+_CTX_MAX = 32768
+#: Room for the JSON answer on top of the prompt.
+_CTX_OUTPUT_RESERVE = 2048
+#: Conservative characters-per-token for index-tagged Spanish/English text.
+_CHARS_PER_TOKEN = 2.5
+
+
+def context_size(system: str, user: str) -> int:
+    """Pick a ``num_ctx`` big enough for this prompt plus the answer.
+
+    Sized per request rather than fixed at the maximum, because the KV cache
+    grows with ``num_ctx`` and on a 16 GB Mac that memory competes with the model.
+    """
+    estimated = int((len(system) + len(user)) / _CHARS_PER_TOKEN) + _CTX_OUTPUT_RESERVE
+    rounded = -(-estimated // _CTX_STEP) * _CTX_STEP  # ceiling to a multiple of the step
+    return max(_CTX_MIN, min(_CTX_MAX, rounded))
+
 
 #: Highlight detection over an 8-minute window is slow on consumer hardware.
 _REQUEST_TIMEOUT = httpx.Timeout(600.0, connect=5.0)
@@ -61,7 +87,10 @@ class OllamaProvider(LLMProvider):
             # Ollama's JSON mode constrains decoding to valid JSON, which is the
             # single biggest reliability win for small local models.
             "format": "json",
-            "options": {"temperature": config.temperature},
+            "options": {
+                "temperature": config.temperature,
+                "num_ctx": context_size(system, user),
+            },
         }
 
         try:

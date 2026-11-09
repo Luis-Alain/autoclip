@@ -48,3 +48,7 @@ desktop.ini
 .env
 .env.*
 !.env.example
+
+# Local test media and raw-pipeline output
+samples/
+out/

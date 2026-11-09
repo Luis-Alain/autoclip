@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -100,7 +101,11 @@ def doctor() -> None:
 
     ff = report.ffmpeg
     table.add_row("ffmpeg", _status(ff.found), ff.version or "not found")
-    table.add_row("ffprobe", _status(ff.ffprobe_found), ff.path or "not found")
+    table.add_row(
+        "ffprobe",
+        _status(ff.ffprobe_found),
+        shutil.which("ffprobe") or "not found",
+    )
     if not ff.found or not ff.ffprobe_found:
         remediation.append(
             "Install ffmpeg and make sure both [cyan]ffmpeg[/cyan] and [cyan]ffprobe[/cyan] "
@@ -164,12 +169,20 @@ def doctor() -> None:
     if gpu.driver_version:
         accel_table.add_row("Driver", OK, gpu.driver_version)
 
-    if gpu.name and not gpu.ctranslate2_cuda:
+    # Only meaningful for NVIDIA. Apple Silicon also reports a device name, and
+    # checking it for CUDA produced a false "missing cuDNN" failure on every Mac.
+    if gpu.accel == "mps":
+        accel_table.add_row(
+            "Whisper device",
+            OK,
+            "CPU (faster-whisper has no Metal backend on Apple Silicon)",
+        )
+    elif gpu.name and not gpu.ctranslate2_cuda:
         accel_table.add_row("CUDA for Whisper", FAIL, "CTranslate2 cannot see the GPU")
         remediation.append(
             "An NVIDIA GPU is present but CTranslate2 can't use it — usually missing cuDNN. "
             "Install the CUDA runtime libraries with "
-            "[cyan]uv pip install 'autoclip[gpu]'[/cyan], then re-run doctor. "
+            "[cyan]uv pip install 'autoclip\\[gpu]'[/cyan], then re-run doctor. "
             "Transcription will fall back to CPU until this is fixed."
         )
     elif gpu.ctranslate2_cuda:
@@ -224,7 +237,7 @@ def doctor() -> None:
     if not deps.whisperx and settings.whisper.diarization:
         remediation.append(
             "Diarization is enabled in settings but WhisperX isn't installed. "
-            "Run [cyan]uv pip install 'autoclip[diarization]'[/cyan] and set a HuggingFace "
+            "Run [cyan]uv pip install 'autoclip\\[diarization]'[/cyan] and set a HuggingFace "
             "token with [cyan]autoclip config set-secret huggingface_token[/cyan]."
         )
 
@@ -236,7 +249,7 @@ def doctor() -> None:
         if missing:
             remediation.append(
                 f"[cyan]{extra}[/cyan] is not installed — reinstall AutoClip's core "
-                "dependencies with [cyan]uv pip install -e '.[dev]'[/cyan]."
+                "dependencies with [cyan]uv pip install -e '.\\[dev]'[/cyan]."
             )
 
     console.print()
@@ -351,6 +364,65 @@ def config_show() -> None:
 def config_path_cmd() -> None:
     """Print the path to config.json."""
     console.print(str(paths.config_path()))
+
+
+@config_app.command("set")
+def config_set(
+    key: str = typer.Argument(
+        ..., help="Dotted setting path, e.g. active_provider or providers.ollama.model."
+    ),
+    value: str = typer.Argument(..., help="New value. Numbers and true/false are parsed."),
+) -> None:
+    """Change one setting and save it to config.json.
+
+    Examples:
+      autoclip config set active_provider ollama
+      autoclip config set providers.ollama.model qwen2.5:7b
+      autoclip config set whisper.language es
+    """
+    import json
+
+    from pydantic import ValidationError
+
+    settings = config.load()
+    data = settings.model_dump(mode="json")
+
+    # Walk the dotted path down to the parent dict of the final key.
+    unknown = f"[red]Unknown setting '{key}'.[/red] See [cyan]autoclip config show[/cyan]."
+    parts = key.split(".")
+    node = data
+    for part in parts[:-1]:
+        child = node.get(part)
+        if not isinstance(child, dict):
+            console.print(unknown)
+            raise typer.Exit(2)
+        node = child
+
+    leaf = parts[-1]
+    if leaf not in node:
+        console.print(unknown)
+        raise typer.Exit(2)
+
+    # "8" -> 8, "true" -> True, "null" -> None; anything else stays a string,
+    # so model names like qwen2.5:7b need no quoting.
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        parsed = value
+    if isinstance(node.get(leaf), str) and not isinstance(parsed, str) and parsed is not None:
+        parsed = value  # e.g. a numeric-looking model name for a string field
+    node[leaf] = parsed
+
+    try:
+        updated = config.Settings.model_validate(data)
+    except ValidationError as exc:
+        console.print(f"[red]Invalid value for {key}:[/red] {exc.errors()[0]['msg']}")
+        raise typer.Exit(2) from exc
+
+    updated._fallback_secrets = settings._fallback_secrets
+    updated.insecure_secret_storage = settings.insecure_secret_storage
+    config.save(updated)
+    console.print(f"[green]Set[/green] {key} = {parsed!r}")
 
 
 @config_app.command("set-secret")
