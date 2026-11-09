@@ -63,19 +63,14 @@ class HighlightsArtifact(BaseModel):
 class ManifestRow(BaseModel):
     """One line of ``manifest.json`` / ``manifest.csv``.
 
-    Times: ``abs_*`` are seconds in the source VOD. ``in_point``/``out_point``
-    are seconds inside the raw clip file, which also contains the handles.
+    ``file`` is the 9:16 clip, relative to the output folder. ``abs_*`` are
+    seconds in the source VOD; the clip file spans exactly that range.
     """
 
     rank: int
     file: str
-    vertical_file: str | None = None
     abs_start: float
     abs_end: float
-    handle_start: float
-    handle_end: float
-    in_point: float
-    out_point: float
     duration: float
     score: int
     hook_title: str

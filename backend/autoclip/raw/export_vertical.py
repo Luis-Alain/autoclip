@@ -21,9 +21,24 @@ from .models import RawClip
 from .slug import slugify
 
 
-def vertical_filename(rank: int, score: int, title: str) -> str:
-    """``01_s92_el-grito-de-xqc_9x16.mp4`` — same stem as the raw clip."""
-    return f"{rank:02d}_s{score}_{slugify(title)}_9x16.mp4"
+def clip_filename(rank: int, score: int, title: str) -> str:
+    """``01_s92_el-grito-de-xqc.mp4``"""
+    return f"{rank:02d}_s{score}_{slugify(title)}.mp4"
+
+
+def is_vertical_file(path: Path) -> bool:
+    """True if ``path`` is a readable portrait video.
+
+    Used when resuming, so a file left over from an older layout (e.g. a 16:9
+    clip with the same name) is re-rendered instead of being taken as done.
+    """
+    from ..pipeline.ffmpeg import FFmpegError, probe
+
+    try:
+        info = probe(path)
+    except FFmpegError:
+        return False
+    return bool(info.width and info.height and info.height > info.width)
 
 
 def export_vertical_clip(

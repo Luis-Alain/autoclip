@@ -16,8 +16,8 @@
               <timebase>30</timebase>
               <ntsc>FALSE</ntsc>
             </rate>
-            <width>1920</width>
-            <height>1080</height>
+            <width>1080</width>
+            <height>1920</height>
             <anamorphic>FALSE</anamorphic>
             <pixelaspectratio>square</pixelaspectratio>
             <fielddominance>none</fielddominance>
@@ -27,15 +27,15 @@
           <clipitem id="clipitem-v1">
             <name>01_s90_x.mp4</name>
             <enabled>TRUE</enabled>
-            <duration>840</duration>
+            <duration>600</duration>
             <rate>
               <timebase>30</timebase>
               <ntsc>FALSE</ntsc>
             </rate>
             <start>0</start>
             <end>600</end>
-            <in>120</in>
-            <out>720</out>
+            <in>0</in>
+            <out>600</out>
             <file id="file-1">
               <name>01_s90_x.mp4</name>
               <pathurl>file://localhost/clips/out/clips/01_s90_x.mp4</pathurl>
@@ -43,7 +43,7 @@
                 <timebase>30</timebase>
                 <ntsc>FALSE</ntsc>
               </rate>
-              <duration>840</duration>
+              <duration>600</duration>
               <media>
                 <video>
                   <samplecharacteristics>
@@ -51,8 +51,8 @@
                       <timebase>30</timebase>
                       <ntsc>FALSE</ntsc>
                     </rate>
-                    <width>1920</width>
-                    <height>1080</height>
+                    <width>1080</width>
+                    <height>1920</height>
                     <anamorphic>FALSE</anamorphic>
                     <pixelaspectratio>square</pixelaspectratio>
                     <fielddominance>none</fielddominance>
@@ -70,7 +70,7 @@
             <marker>
               <name>¡Qué jugada!</name>
               <comment>Hook fuerte &amp; payoff &lt;claro&gt;</comment>
-              <in>120</in>
+              <in>0</in>
               <out>-1</out>
             </marker>
             <link>
@@ -89,15 +89,15 @@
           <clipitem id="clipitem-v2">
             <name>02_s90_x.mp4</name>
             <enabled>TRUE</enabled>
-            <duration>540</duration>
+            <duration>300</duration>
             <rate>
               <timebase>30</timebase>
               <ntsc>FALSE</ntsc>
             </rate>
             <start>630</start>
             <end>930</end>
-            <in>120</in>
-            <out>420</out>
+            <in>0</in>
+            <out>300</out>
             <file id="file-2">
               <name>02_s90_x.mp4</name>
               <pathurl>file://localhost/clips/out/clips/02_s90_x.mp4</pathurl>
@@ -105,7 +105,7 @@
                 <timebase>30</timebase>
                 <ntsc>FALSE</ntsc>
               </rate>
-              <duration>540</duration>
+              <duration>300</duration>
               <media>
                 <video>
                   <samplecharacteristics>
@@ -113,8 +113,8 @@
                       <timebase>30</timebase>
                       <ntsc>FALSE</ntsc>
                     </rate>
-                    <width>1920</width>
-                    <height>1080</height>
+                    <width>1080</width>
+                    <height>1920</height>
                     <anamorphic>FALSE</anamorphic>
                     <pixelaspectratio>square</pixelaspectratio>
                     <fielddominance>none</fielddominance>
@@ -132,7 +132,7 @@
             <marker>
               <name>Segundo</name>
               <comment>r2</comment>
-              <in>120</in>
+              <in>0</in>
               <out>-1</out>
             </marker>
             <link>
@@ -162,15 +162,15 @@
           <clipitem id="clipitem-a1">
             <name>01_s90_x.mp4</name>
             <enabled>TRUE</enabled>
-            <duration>840</duration>
+            <duration>600</duration>
             <rate>
               <timebase>30</timebase>
               <ntsc>FALSE</ntsc>
             </rate>
             <start>0</start>
             <end>600</end>
-            <in>120</in>
-            <out>720</out>
+            <in>0</in>
+            <out>600</out>
             <file id="file-1" />
             <sourcetrack>
               <mediatype>audio</mediatype>
@@ -192,15 +192,15 @@
           <clipitem id="clipitem-a2">
             <name>02_s90_x.mp4</name>
             <enabled>TRUE</enabled>
-            <duration>540</duration>
+            <duration>300</duration>
             <rate>
               <timebase>30</timebase>
               <ntsc>FALSE</ntsc>
             </rate>
             <start>630</start>
             <end>930</end>
-            <in>120</in>
-            <out>420</out>
+            <in>0</in>
+            <out>300</out>
             <file id="file-2" />
             <sourcetrack>
               <mediatype>audio</mediatype>

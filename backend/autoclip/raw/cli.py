@@ -26,20 +26,13 @@ def raw(
     top: int = typer.Option(20, "--top", "-n", min=1, help="Maximum number of clips."),
     min_s: float = typer.Option(15.0, "--min", help="Minimum clip length in seconds."),
     max_s: float = typer.Option(60.0, "--max", help="Maximum clip length in seconds."),
-    handles: float = typer.Option(
-        4.0, "--handles", min=0.0, help="Extra seconds before/after each raw clip."
-    ),
     provider: str = typer.Option(
         "", "--provider", "-p", help="LLM provider (ollama, gemini, openai, anthropic)."
-    ),
-    prores: bool = typer.Option(False, "--prores", help="Raw clips as ProRes 422 .mov."),
-    vertical: bool = typer.Option(
-        True, "--vertical/--no-vertical", help="Also render 9:16 clips with captions."
     ),
     style: str = typer.Option("", "--style", "-s", help="Caption style (see `autoclip styles`)."),
     out: Path = typer.Option(Path("out"), "--out", "-o", help="Output directory."),
 ) -> None:
-    """Find the best moments in a VOD: raw 16:9 clips (+handles) and 9:16 captioned clips."""
+    """Find the best moments in a VOD and export them as 9:16 clips with captions."""
     from .runner import RawOptions, RawRunner
     from .source import SourceError, resolve
 
@@ -76,10 +69,7 @@ def raw(
         top=top,
         min_s=min_s,
         max_s=max_s,
-        handles_s=handles,
         provider=provider or None,
-        prores=prores,
-        vertical=vertical,
         style=style,
     )
 
@@ -136,12 +126,10 @@ def raw(
     console.print(table)
     for warning in result.warnings:
         console.print(f"[yellow]Note:[/yellow] {warning}")
-    console.print(f"\n[green]Raw clips:[/green]  {result.folder / 'clips'}")
-    if vertical:
-        console.print(f"[green]9:16 clips:[/green] {result.folder / 'vertical'}")
-    console.print(f"[green]Manifest:[/green]   {result.folder / 'manifest.csv'}")
+    console.print(f"\n[green]Clips (9:16):[/green] {result.folder / 'clips'}")
+    console.print(f"[green]Manifest:[/green]     {result.folder / 'manifest.csv'}")
     console.print(
-        f"[green]Premiere:[/green]   {result.folder / 'timeline.xml'}  [dim](File → Import)[/dim]"
+        f"[green]Premiere:[/green]     {result.folder / 'timeline.xml'}  [dim](File → Import)[/dim]"
     )
 
 

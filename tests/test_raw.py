@@ -1,4 +1,4 @@
-"""Raw-clips pipeline (autoclip/raw)."""
+"""Stream-clips pipeline (autoclip/raw): 9:16 clips with captions."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import pytest
 from autoclip.config import Settings
 from autoclip.pipeline.transcript import Transcript, Word
 from autoclip.providers import ClipCandidate, ClipCandidates, LLMProvider, ProviderStatus
-from autoclip.raw import export_raw, select, source
+from autoclip.raw import export_vertical, select, source
 from autoclip.raw.manifest import read_manifest, write_manifest
 from autoclip.raw.models import ManifestRow, SourceInfo
 from autoclip.raw.slug import slugify
@@ -41,39 +41,12 @@ def test_slugify_truncates_without_trailing_dash() -> None:
     assert not slug.endswith("-")
 
 
-# -- cut planning -----------------------------------------------------------
+# -- file names -------------------------------------------------------------
 
 
-def test_plan_cut_adds_handles_and_maps_in_out() -> None:
-    cut = export_raw.plan_cut(100.0, 130.0, handles_s=4.0, source_duration_s=3600.0)
-    assert (cut.handle_start, cut.handle_end) == (96.0, 134.0)
-    assert (cut.in_point, cut.out_point) == (4.0, 34.0)
-    assert cut.file_duration == 38.0
-
-
-def test_plan_cut_clamps_to_source_edges() -> None:
-    start = export_raw.plan_cut(1.5, 20.0, handles_s=4.0, source_duration_s=3600.0)
-    assert start.handle_start == 0.0
-    assert start.in_point == 1.5
-    end = export_raw.plan_cut(3590.0, 3598.0, handles_s=4.0, source_duration_s=3600.0)
-    assert end.handle_end == 3600.0
-    assert (end.in_point, end.out_point) == (4.0, 12.0)
-
-
-def test_raw_filename() -> None:
-    assert export_raw.raw_filename(1, 92, "¡El grito!", prores=False) == "01_s92_el-grito.mp4"
-    assert export_raw.raw_filename(12, 70, "x", prores=True) == "12_s70_x.mov"
-
-
-def test_encode_args_choose_codecs() -> None:
-    def codec(args: list[str]) -> str:
-        return args[args.index("-c:v") + 1]
-
-    assert codec(export_raw.encode_args(prores=False, hardware=True)) == "h264_videotoolbox"
-    assert codec(export_raw.encode_args(prores=False, hardware=False)) == "libx264"
-    assert codec(export_raw.encode_args(prores=True, hardware=True)) == "prores_videotoolbox"
-    assert codec(export_raw.encode_args(prores=True, hardware=False)) == "prores_ks"
-    assert "pcm_s16le" in export_raw.encode_args(prores=True, hardware=True)
+def test_clip_filename() -> None:
+    assert export_vertical.clip_filename(1, 92, "¡El grito!") == "01_s92_el-grito.mp4"
+    assert export_vertical.clip_filename(12, 70, "عادات") == "12_s70_clip.mp4"
 
 
 # -- selection --------------------------------------------------------------
@@ -150,10 +123,6 @@ def _row(rank: int) -> ManifestRow:
         file=f"clips/{rank:02d}_s80_x.mp4",
         abs_start=10.0,
         abs_end=40.0,
-        handle_start=6.0,
-        handle_end=44.0,
-        in_point=4.0,
-        out_point=34.0,
         duration=30.0,
         score=80,
         hook_title="¡Qué jugada! ñ",
@@ -171,7 +140,7 @@ def test_manifest_round_trip(tmp_path: Path) -> None:
     with csv_path.open(encoding="utf-8-sig") as handle:
         rows = list(csv.DictReader(handle))
     assert rows[0]["hook_title"] == "¡Qué jugada! ñ"
-    assert rows[1]["in_point"] == "4.0"
+    assert rows[1]["duration"] == "30.0"
 
 
 # -- source -----------------------------------------------------------------
@@ -261,7 +230,7 @@ def test_raw_pipeline_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
     settings = Settings()
     info, folder = source.resolve(str(video), tmp_path / "out", settings)
-    options = raw_runner.RawOptions(min_s=5, max_s=12, handles_s=2, vertical=False)
+    options = raw_runner.RawOptions(min_s=5, max_s=12)
     monkeypatch.chdir(tmp_path)
     folder = folder.relative_to(tmp_path)  # a relative folder must still work
     result = asyncio.run(raw_runner.RawRunner(info, folder, options, settings).run())
@@ -271,18 +240,19 @@ def test_raw_pipeline_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     first = manifest[0]
     assert first["file"].startswith("clips/01_s88_la-jugada-del-ano")
     assert first["needs_context"] is True
-    assert first["in_point"] == pytest.approx(first["abs_start"] - first["handle_start"])
 
-    # The file really contains handle_start..handle_end of the source.
+    # The clip is 9:16 and spans exactly abs_start..abs_end of the source.
     clip_file = folder / first["file"]
-    duration = float(
+    probe = json.loads(
         subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "csv=p=0", str(clip_file)],
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+             "stream=width,height:format=duration", "-of", "json", str(clip_file)],
             capture_output=True, text=True, check=True,
         ).stdout
     )  # fmt: skip
-    assert duration == pytest.approx(first["handle_end"] - first["handle_start"], abs=0.1)
+    assert (probe["streams"][0]["width"], probe["streams"][0]["height"]) == (1080, 1920)
+    assert float(probe["format"]["duration"]) == pytest.approx(first["duration"], abs=0.15)
+    assert (folder / "timeline.xml").exists()
 
     # Second run resumes: nothing is re-rendered.
     mtime = clip_file.stat().st_mtime

@@ -27,10 +27,6 @@ def _row(rank: int, start: float, dur: float, title: str = "t", reason: str = "r
         file=f"clips/{rank:02d}_s90_x.mp4",
         abs_start=start,
         abs_end=start + dur,
-        handle_start=start - 4,
-        handle_end=start + dur + 4,
-        in_point=4.0,
-        out_point=4.0 + dur,
         duration=dur,
         score=90,
         hook_title=title,
@@ -88,15 +84,15 @@ def test_matches_fixture() -> None:
         _fixture_rows(),
         Path("/clips/out"),
         name="Stream (autoclip)",
-        width=1920,
-        height=1080,
+        width=1080,
+        height=1920,
         fps=30.0,
         audio=AudioFormat(48_000, 2),
     )
     assert _render(tree) == FIXTURE.read_text(encoding="utf-8")
 
 
-def test_clips_are_trimmed_to_in_out_with_handles_outside() -> None:
+def test_clips_are_placed_whole_with_one_second_gaps() -> None:
     tree = build_timeline(
         _fixture_rows(), Path("/c"), name="s", width=1920, height=1080, fps=30.0,
         audio=AudioFormat(),
@@ -107,10 +103,10 @@ def test_clips_are_trimmed_to_in_out_with_handles_outside() -> None:
     def num(el: ET.Element, tag: str) -> int:
         return int(el.findtext(tag) or "0")
 
-    # Clip 1: 20 s chosen, 4 s handles each side, at 30 fps.
+    # Clip 1: a 20 s file at 30 fps, used whole.
     assert (num(first, "start"), num(first, "end")) == (0, 600)
-    assert (num(first, "in"), num(first, "out")) == (120, 720)
-    assert num(first, "duration") == 840  # handles are in the media
+    assert (num(first, "in"), num(first, "out")) == (0, 600)
+    assert num(first, "duration") == 600
     # Clip 2 starts after a one-second gap.
     assert num(second, "start") == 600 + 30
     assert num(tree.getroot().find("sequence"), "duration") == num(second, "end")  # type: ignore[arg-type]
@@ -175,15 +171,16 @@ def test_write_timeline_probes_audio_and_is_well_formed(tmp_path: Path) -> None:
     clip.parent.mkdir()
     subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
-         "-i", "testsrc2=s=320x180:r=30:d=28", "-f", "lavfi",
-         "-i", "sine=duration=28:sample_rate=44100", "-ac", "2", "-shortest", str(clip)],
+         "-i", "testsrc2=s=180x320:r=30:d=20", "-f", "lavfi",
+         "-i", "sine=duration=20:sample_rate=44100", "-ac", "2", "-shortest", str(clip)],
         check=True,
     )  # fmt: skip
-    path = write_timeline(
-        [_row(1, 100.0, 20.0)], tmp_path, name="s", width=320, height=180, fps=30.0
-    )
+    path = write_timeline([_row(1, 100.0, 20.0)], tmp_path, name="s")
     text = path.read_text(encoding="utf-8")
     assert text.startswith('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE xmeml>')
     root = ET.fromstring(text.split("\n", 2)[2])
     assert root.findtext(".//audio/format/samplecharacteristics/samplerate") == "44100"
     assert root.findtext(".//file/pathurl") == path_url(clip)
+    # Sequence format comes from the clip itself.
+    assert root.findtext("./sequence/media/video/format/samplecharacteristics/width") == "180"
+    assert root.findtext("./sequence/media/video/format/samplecharacteristics/height") == "320"

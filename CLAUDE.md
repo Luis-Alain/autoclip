@@ -6,16 +6,11 @@ This is a fork of [artbyjazi/autoclip](https://github.com/artbyjazi/autoclip) (M
 
 We are repurposing it. The goal is **not** finished 9:16 shorts. The goal is to:
 
-> Take a long stream VOD (1–6 h, Twitch / Kick / YouTube), find the best moments automatically, and export **two versions of every clip**:
->
-> 1. **Vertical 9:16 with burned-in captions**, ready to post on social media (reuses upstream's speaker-tracked reframe and animated captions).
-> 2. **Raw, uncropped, uncaptioned 16:9 with handles, plus a Premiere Pro XML timeline**, for when the owner wants to add VFX, captions and hooks by hand in Premiere.
+> Take a long stream VOD (1–6 h, Twitch / Kick / YouTube), find the best moments automatically, and export them as **vertical 9:16 clips with burned-in captions**, ready to post on social media (reuses upstream's speaker-tracked reframe and animated captions). A **Premiere Pro XML timeline** of those clips and a manifest come with them.
 
-*Decision (2026-11-08): Luis asked for 9:16 captioned output in addition to the raw/Premiere export. Both are produced by default.*
+*Decisions (2026-11-08): Luis first asked for 9:16 captioned clips in addition to the raw 16:9 export, then dropped the 16:9 export entirely: only 9:16 exists. The Premiere timeline stays, pointing at the 9:16 clips.*
 
-The clips are for official clip campaigns: Content Rewards (Whop), Vyro, and streamer Discord programs. These pay per verified view. Source footage always comes from campaigns that authorize clipping.
-
-The time we save is the slow part: watching hours of VOD, picking moments, and cutting them. The vertical version gives a fast, postable baseline; the raw version keeps the manual creative layer available, because platforms suppress clips that add nothing original and a human edit is what makes the best clips earn.
+The time we save is the slow part: watching hours of VOD, picking moments, and cutting them. Platforms suppress clips that add nothing original, so the timeline lets Luis add his own edit (hooks, VFX) on top of the generated clips in Premiere.
 
 ## Owner context
 
@@ -52,13 +47,11 @@ Show Luis the notes and a short plan before the first big change.
 ## Target pipeline
 
 ```
-fetch → spikes → windows → transcribe → highlights → export_raw → export_premiere
-        (new)    (new)     (mlx, done)   (reuse)     (new)        (new)
-                                                   ↘ export_vertical
-                                                     (reuse upstream reframe + captions + export)
+fetch → spikes → windows → transcribe → highlights → export_vertical → export_premiere
+        (new)    (new)     (mlx, done)   (reuse)     (reuse upstream)  (new)
 ```
 
-`export_vertical` runs upstream's `reframe` (MediaPipe face tracking) and caption burn-in (libass, `--style`) on the same ranked clips, at 9:16, encoded with VideoToolbox. Captions use the clip's word timings from the transcript, in the transcript's language.
+`export_vertical` runs upstream's `reframe` (MediaPipe face tracking) and caption burn-in (libass, `--style`) on the ranked clips, at 9:16, encoded with VideoToolbox. Captions use the clip's word timings from the transcript, in the transcript's language.
 
 ### 0. fetch
 - Input: a URL (Twitch/Kick/YouTube VOD) or a local video file.
@@ -98,21 +91,15 @@ fetch → spikes → windows → transcribe → highlights → export_raw → ex
 - Enforce constraints **in code**, not just in the prompt: min/max duration (default 15–60 s, from the campaign profile), dedupe overlapping candidates (keep the higher score), keep the top N.
 - Default provider: whatever upstream supports. Recommend Gemini Flash-Lite (cheap) or Ollama (free, local).
 
-### 5. export_raw (new)
-- For each candidate, cut from the **source** at full resolution and 16:9. No crop, no captions.
-- Add **handles** (default 4 s before and after) so Luis can trim in Premiere. Store both the handle range and the "in/out" range.
-- Cut accurately: re-encode, don't use `-c copy`, because keyframe cuts drift.
-  - Default: `h264_videotoolbox` at a high bitrate, or `-crf`-equivalent quality.
-  - Option `--prores`: ProRes 422 for smoother editing.
-- Filename: `{rank:02d}_s{score}_{slug(hook_title)}.mp4`, ASCII-safe slug.
-- Write `manifest.json` and `manifest.csv` with: rank, file, abs_start, abs_end, in_point, out_point, duration, score, hook_title, reason, needs_context, chat_score, transcript_excerpt, source_url, campaign.
+### 5. export_vertical (reuse upstream)
+- For each candidate, reframe to 9:16 around the speaker and burn in animated captions in the transcript's language. Cut accurately (re-encode), `h264_videotoolbox`.
+- Filename: `{rank:02d}_s{score}_{slug(hook_title)}.mp4`, ASCII-safe slug, in `clips/`.
+- Write `manifest.json` and `manifest.csv` with: rank, file, abs_start, abs_end, duration, score, hook_title, reason, needs_context, chat_score, transcript_excerpt, source_url, campaign.
 
 ### 6. export_premiere (new)
 - Write `timeline.xml` in **FCP7 XML (xmeml)**, which Premiere Pro imports via File → Import.
-- One sequence matching the source frame rate and resolution. Clips go in rank order, with a 1-second gap between them.
-- Each clip's in/out is set to the trimmed range, with the handles available as media outside the in/out.
+- One sequence matching the clips' frame rate and resolution (1080×1920). Clips go in rank order, whole, with a 1-second gap between them.
 - Add a **marker** on each clip with `hook_title` as the name and `reason` as the comment.
-- Alternative if writing XML by hand gets painful: generate an auto-editor v3 timeline and convert it with `auto-editor <timeline> --export premiere`. Evaluate both and pick one.
 - Acceptance: Luis imports `timeline.xml` into Premiere on his Mac, media links without relinking, and the markers show up.
 
 ## CLI we want
@@ -124,10 +111,7 @@ autoclip raw <url-or-file> \
   --campaign <profile-name> \
   --top 20 \
   --min 15 --max 60 \
-  --handles 4 \
   --provider ollama|gemini|openai \
-  --prores \
-  --vertical/--no-vertical \
   --style <caption-style> \
   --out ./out
 ```
@@ -136,8 +120,7 @@ Output layout:
 
 ```
 out/<date>_<channel>_<vod-id>/
-  clips/01_s92_el-grito-de-xqc.mp4 ...         (raw 16:9 with handles)
-  vertical/01_s92_el-grito-de-xqc_9x16.mp4 ...  (9:16, burned-in captions, ready to post)
+  clips/01_s92_el-grito-de-xqc.mp4 ...   (9:16, burned-in captions, ready to post)
   timeline.xml
   manifest.json
   manifest.csv
@@ -153,10 +136,9 @@ Campaign profiles live in `campaigns/<name>.yaml`: `min_len, max_len, allowed_pl
 | # | Milestone | Done when |
 |---|---|---|
 | M0 | Architecture notes | `docs/ARCHITECTURE_NOTES.md` exists and Luis has approved the plan |
-| M1 | Raw export on a local file | ✅ Done: `autoclip raw video.mp4 --chat none` produces ranked 16:9 clips with handles and a manifest |
-| M1b | Vertical export | ✅ Done: the same command also writes `vertical/*.mp4`: 9:16, speaker-tracked, burned-in captions in the transcript's language, listed in the manifest (`vertical_file`) |
+| M1 | 9:16 export on a local file | ✅ Done: `autoclip raw video.mp4 --chat none` produces ranked 9:16 captioned clips and a manifest (the 16:9 raw export was built, then removed at Luis's request) |
 | M2 | mlx-whisper backend | ✅ Done early (commit `ffcde3a`): mlx-whisper large-v3-turbo on the Apple GPU, VideoToolbox encode, language verification |
-| M3 | Premiere XML | 🟡 Implemented (hand-written xmeml, chosen over the auto-editor round-trip: no extra dependency, full control of markers). Awaiting acceptance: `timeline.xml` imports cleanly into Premiere, with markers |
+| M3 | Premiere XML | 🟡 Implemented for the 9:16 clips (hand-written xmeml: no extra dependency, full control of markers). Awaiting acceptance: `timeline.xml` imports cleanly into Premiere, with markers |
 | M4 | Chat spikes | On a Twitch VOD with chat, only spike windows are transcribed. Output is logged as minutes processed vs total minutes |
 | M5 | URL ingest + partial download | A Twitch or YouTube URL works end to end without downloading the full VOD |
 | M6 | Campaign profiles | Length limits and credit text come from YAML |
@@ -166,7 +148,7 @@ Work milestone by milestone. Commit after each one with a clear message.
 ## Engineering conventions
 
 - Python 3.11 or 3.12. **Not 3.13**, because upstream says MediaPipe has no 3.13 wheels. Use `uv` as upstream does.
-- Put new code in its own package, e.g. `autoclip/raw/` (`spikes.py`, `windows.py`, `export_raw.py`, `export_premiere.py`, `campaigns.py`). Keep edits to upstream files small and behind flags, so pulling upstream changes stays easy.
+- Put new code in its own package, e.g. `autoclip/raw/` (`spikes.py`, `windows.py`, `export_vertical.py`, `export_premiere.py`, `campaigns.py`). Keep edits to upstream files small and behind flags, so pulling upstream changes stays easy.
 - Type hints everywhere. Use dataclasses or pydantic models for JSON schemas.
 - Every new stage writes its artifact into the job work dir and is **resumable**, as upstream stages are.
 - Tests with pytest:

@@ -1,9 +1,8 @@
 """``timeline.xml``: a Final Cut Pro 7 XML (xmeml) sequence that Premiere imports.
 
-Premiere Pro reads xmeml through File → Import. The sequence holds every raw
-clip in rank order with a one-second gap between them. Each clip item is
-trimmed to the chosen moment (``in``/``out``), while the handles stay in the
-media outside the edit points, so a clip can be extended by dragging its edge.
+Premiere Pro reads xmeml through File → Import. The sequence holds every 9:16
+clip in rank order with a one-second gap between them, at the clips' own size
+and frame rate, so they can be reviewed and tweaked in one place.
 
 Each clip carries a marker named after ``hook_title`` with ``reason`` as the
 comment; the same marker is placed on the sequence ruler, where Premiere shows
@@ -135,10 +134,10 @@ def build_timeline(
     cursor = 0
     for index, row in enumerate(rows, start=1):
         file_path = folder / row.file
-        file_frames = rate.frames(row.handle_end - row.handle_start)
-        in_frame = min(rate.frames(row.in_point), file_frames - 1)
-        out_frame = min(max(rate.frames(row.out_point), in_frame + 1), file_frames)
-        start, end = cursor, cursor + (out_frame - in_frame)
+        # The clip file is exactly the chosen moment: use all of it.
+        file_frames = max(1, rate.frames(row.duration))
+        in_frame, out_frame = 0, file_frames
+        start, end = cursor, cursor + file_frames
 
         video_id, audio_id, file_id = f"clipitem-v{index}", f"clipitem-a{index}", f"file-{index}"
 
@@ -156,7 +155,7 @@ def build_timeline(
             _audio_characteristics(file_audio, audio)
             _text(file_audio, "channelcount", str(audio.channels))
 
-        # Clip marker, in source-media frames (inside the handles).
+        # Clip marker, in the clip's own media frames.
         _marker(item, row.hook_title, row.reason, in_frame)
 
         if audio_track is not None:
@@ -180,18 +179,28 @@ def build_timeline(
     return ET.ElementTree(root)
 
 
-def write_timeline(
-    rows: list[ManifestRow],
-    folder: Path,
-    *,
-    name: str,
-    width: int,
-    height: int,
-    fps: float | None,
-) -> Path:
-    """Write ``timeline.xml`` next to the clips and return its path."""
-    audio = probe_audio(folder / rows[0].file) if rows else None
-    tree = build_timeline(rows, folder, name=name, width=width, height=height, fps=fps, audio=audio)
+def write_timeline(rows: list[ManifestRow], folder: Path, *, name: str) -> Path:
+    """Write ``timeline.xml`` next to the clips and return its path.
+
+    The sequence format (size, frame rate, audio) is read from the first clip,
+    so it always matches what the export actually produced.
+
+    Preconditions:
+        rows is non-empty and its files exist.
+    """
+    from ..pipeline.ffmpeg import probe
+
+    first = folder / rows[0].file
+    info = probe(first)
+    tree = build_timeline(
+        rows,
+        folder,
+        name=name,
+        width=info.width or 1080,
+        height=info.height or 1920,
+        fps=info.fps,
+        audio=probe_audio(first),
+    )
     path = folder / "timeline.xml"
     body = ET.tostring(tree.getroot(), encoding="unicode")
     path.write_text(

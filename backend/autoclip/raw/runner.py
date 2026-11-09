@@ -1,19 +1,18 @@
-"""The raw pipeline, stage by stage, with every artifact in one output folder.
+"""The stream-clips pipeline, stage by stage, with every artifact in one output folder.
 
     <out>/<date>_<channel>_<vod-id>/
       source.json          the VOD's metadata
       work/                audio.wav, silences.json, crop paths, caption files
       transcript/full.json word-level transcript (absolute seconds)
       highlights.json      the ranked selection + the params that produced it
-      clips/               raw 16:9 with handles
-      vertical/            9:16 with burned-in captions
+      clips/               9:16, speaker-tracked, burned-in captions
       manifest.json/.csv   one row per clip
-      timeline.xml         Premiere sequence of the raw clips (FCP7 xmeml)
+      timeline.xml         Premiere sequence of the clips (FCP7 xmeml)
       logs/                run log, including every ffmpeg command
 
 Resuming: each stage is skipped when its artifact exists. Changing the
 selection params (--top/--min/--max/provider/model) recomputes highlights;
-clip files are skipped individually when already rendered.
+clips are skipped individually when already rendered.
 """
 
 from __future__ import annotations
@@ -31,8 +30,7 @@ from ..pipeline.transcript import Transcript
 from ..providers import build_provider
 from ..system import report
 from .export_premiere import write_timeline
-from .export_raw import export_raw_clip, plan_cut, raw_filename
-from .export_vertical import export_vertical_clip, vertical_filename
+from .export_vertical import clip_filename, export_vertical_clip, is_vertical_file
 from .manifest import excerpt, write_manifest
 from .models import HighlightsArtifact, ManifestRow, RawClip, SourceInfo, read_model, write_model
 from .select import PROMPT_VERSION, select_clips
@@ -44,12 +42,15 @@ WEIGHTS = {
     "prepare": 0.05,
     "transcribe": 0.35,
     "highlights": 0.25,
-    "clips": 0.10,
-    "vertical": 0.25,
+    "clips": 0.35,
 }
 
 #: (overall 0..1, message)
 ProgressFn = Callable[[float, str], None]
+
+
+class RunError(RuntimeError):
+    """The run can't proceed; the message says why and what to do."""
 
 
 @dataclass
@@ -58,10 +59,7 @@ class RawOptions:
     top: int = 20
     min_s: float = 15.0
     max_s: float = 60.0
-    handles_s: float = 4.0
     provider: str | None = None
-    prores: bool = False
-    vertical: bool = True
     style: str = ""
 
 
@@ -117,6 +115,14 @@ class RawRunner:
     # -- run -----------------------------------------------------------------
 
     async def run(self) -> RawResult:
+        if not report().ffmpeg.has_libass:
+            # Checked up front: captions are part of every clip, so without
+            # libass there is no output — better to fail before transcribing.
+            raise RunError(
+                "This ffmpeg has no libass, so captions can't be burned in. "
+                "Install ffmpeg-full (see `autoclip doctor`)."
+            )
+
         self.folder.mkdir(parents=True, exist_ok=True)
         write_model(self.folder / "source.json", self.source)
         log.info("Output folder: %s", self.folder)
@@ -125,13 +131,10 @@ class RawRunner:
         transcript = self._transcribe(audio)
         silences = self._silences(audio)
         clips = await self._highlights(transcript, silences)
-        rows = self._export_raw(clips, transcript)
-        # Written now, so the raw clips are documented even if a 9:16 render fails.
+        rows = self._export(clips, transcript)
         write_manifest(rows, self.folder)
         self._timeline(rows)
-        self._export_vertical(clips, transcript, rows)
-        write_manifest(rows, self.folder)
-        self._report("vertical", 1.0, "Done")
+        self._report("clips", 1.0, "Done")
         return RawResult(folder=self.folder, clips=clips, rows=rows, warnings=self.warnings)
 
     # -- stages --------------------------------------------------------------
@@ -222,25 +225,27 @@ class RawRunner:
         self._finish("highlights")
         return clips
 
-    def _export_raw(self, clips: list[RawClip], transcript: Transcript) -> list[ManifestRow]:
+    def _export(self, clips: list[RawClip], transcript: Transcript) -> list[ManifestRow]:
+        style = captions.get_style(self.options.style or self.settings.export.caption_style)
+        export_settings = self.settings.export.model_copy(update={"ratio": "9:16"})
+
         rows: list[ManifestRow] = []
         for index, clip in enumerate(clips):
-            cut = plan_cut(
-                clip.start_s,
-                clip.end_s,
-                handles_s=self.options.handles_s,
-                source_duration_s=self.source.duration_s,
-            )
-            name = raw_filename(clip.rank, clip.score, clip.hook_title, prores=self.options.prores)
+            name = clip_filename(clip.rank, clip.score, clip.hook_title)
             destination = self.folder / "clips" / name
-            message = f"Cutting raw clip {index + 1}/{len(clips)}"
+            message = f"Rendering clip {index + 1}/{len(clips)}"
 
-            if not destination.exists():
-                export_raw_clip(
+            if destination.exists() and is_vertical_file(destination):
+                log.info("Reusing %s", destination)
+            else:
+                export_vertical_clip(
                     self.source_path,
                     destination,
-                    cut,
-                    prores=self.options.prores,
+                    clip,
+                    transcript,
+                    style=style,
+                    settings=export_settings,
+                    work_dir=self.work,
                     on_progress=lambda f, i=index, m=message: self._report(
                         "clips", (i + f) / len(clips), m
                     ),
@@ -252,10 +257,6 @@ class RawRunner:
                     file=f"clips/{name}",
                     abs_start=round(clip.start_s, 3),
                     abs_end=round(clip.end_s, 3),
-                    handle_start=cut.handle_start,
-                    handle_end=cut.handle_end,
-                    in_point=cut.in_point,
-                    out_point=cut.out_point,
                     duration=round(clip.duration_s, 3),
                     score=clip.score,
                     hook_title=clip.hook_title,
@@ -273,51 +274,8 @@ class RawRunner:
         return rows
 
     def _timeline(self, rows: list[ManifestRow]) -> None:
-        """Premiere timeline of the raw clips. Cheap, so always regenerated."""
-        if not rows:
-            return
-        write_timeline(
-            rows,
-            self.folder,
-            name=f"{self.source.title or self.source.vod_id} (autoclip)",
-            width=self.source.width or 1920,
-            height=self.source.height or 1080,
-            fps=self.source.fps,
-        )
-
-    def _export_vertical(
-        self, clips: list[RawClip], transcript: Transcript, rows: list[ManifestRow]
-    ) -> None:
-        if not self.options.vertical:
-            self._finish("vertical")
-            return
-        if not report().ffmpeg.has_libass:
-            self.warnings.append(
-                "Skipped the 9:16 versions: this ffmpeg has no libass, so captions can't be "
-                "burned in. Install ffmpeg-full (see `autoclip doctor`)."
+        """Premiere timeline of the clips. Cheap, so always regenerated."""
+        if rows:
+            write_timeline(
+                rows, self.folder, name=f"{self.source.title or self.source.vod_id} (autoclip)"
             )
-            self._finish("vertical")
-            return
-
-        style = captions.get_style(self.options.style or self.settings.export.caption_style)
-        export_settings = self.settings.export.model_copy(update={"ratio": "9:16"})
-
-        for index, (clip, row) in enumerate(zip(clips, rows, strict=True)):
-            name = vertical_filename(clip.rank, clip.score, clip.hook_title)
-            destination = self.folder / "vertical" / name
-            message = f"Rendering 9:16 clip {index + 1}/{len(clips)}"
-            if not destination.exists():
-                export_vertical_clip(
-                    self.source_path,
-                    destination,
-                    clip,
-                    transcript,
-                    style=style,
-                    settings=export_settings,
-                    work_dir=self.work,
-                    on_progress=lambda f, i=index, m=message: self._report(
-                        "vertical", (i + f) / len(clips), m
-                    ),
-                )
-            row.vertical_file = f"vertical/{name}"
-        self._finish("vertical")

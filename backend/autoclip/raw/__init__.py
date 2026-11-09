@@ -1,7 +1,8 @@
-"""Raw-clips pipeline: long stream VOD in, ranked clips out in two versions.
+"""Stream-clips pipeline: long stream VOD in, ranked 9:16 clips out.
 
-- ``clips/``    raw 16:9, uncropped, uncaptioned, with handles (for Premiere)
-- ``vertical/`` 9:16, speaker-tracked, burned-in captions (ready to post)
+Each clip is reframed to 9:16 around the speaker, with burned-in captions,
+ready to post. A Premiere timeline (``timeline.xml``) of the clips and a
+manifest come with them.
 
 Reuses upstream's transcription, highlight provider, boundary refinement,
 reframe, and caption export. Everything lives in one output folder, and every
