@@ -53,9 +53,21 @@ class ProviderSettings(BaseModel):
     base_url: str | None = None
 
 
+WhisperBackend = Literal["auto", "faster-whisper", "mlx"]
+
+
 class WhisperSettings(BaseModel):
-    #: tiny | base | small | medium | large-v3 — or a local path.
+    #: Which engine transcribes. "auto" uses MLX (the Apple Silicon GPU) when
+    #: mlx-whisper is installed on an arm64 Mac, and faster-whisper otherwise.
+    backend: WhisperBackend = "auto"
+    #: faster-whisper model: tiny | base | small | medium | large-v3 — or a local path.
     model: str = "small"
+    #: MLX model: a Hugging Face repo from mlx-community, or a local path.
+    mlx_model: str = "mlx-community/whisper-large-v3-turbo"
+    #: When a language is set, sample the audio first and warn — then use the
+    #: detected language — if the speech is clearly in another one. Forcing the
+    #: wrong language makes Whisper translate, which looks right but isn't.
+    verify_language: bool = True
     #: Force a CTranslate2 compute type. Empty means "let hardware detection pick".
     compute_type: str = ""
     #: ISO 639-1 code, or empty for auto-detection.
@@ -87,7 +99,8 @@ class ExportSettings(BaseModel):
     caption_style: str = "bold_pop"
     #: Integrated loudness target in LUFS. -14 is the de-facto platform standard.
     loudness_lufs: float = -14.0
-    #: Use h264_nvenc when the hardware supports it. Falls back to libx264.
+    #: Use a hardware encoder (h264_videotoolbox on a Mac, h264_nvenc with an
+    #: NVIDIA GPU) when it works. Falls back to libx264.
     prefer_hardware_encoder: bool = True
     crf: int = 18
     #: Also write a .srt sidecar next to each exported clip.

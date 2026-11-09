@@ -283,6 +283,9 @@ class PipelineRunner:
         provider_name = self.job.provider or self.settings.active_provider
         provider = build_provider(provider_name, self.settings)
         config = detection_config(self.settings)
+        # The language actually transcribed, which can differ from the setting
+        # when language verification overrode it. Titles are written in it.
+        config.language = transcript.language or config.language
 
         self._emit(stage, 0.0, f"Finding highlights with {provider.name}")
         clips = await highlights.detect(
@@ -367,8 +370,11 @@ class PipelineRunner:
 
             crop_path = crop_paths.get(clip.id) or self._fallback_crop_path(clip, ratio)
             words = transcript.slice(clip.start_word, clip.end_word)
-            destination = destination_dir / export.output_filename(
-                clip.title or f"clip-{clip.rank}", ratio
+            # Rank prefix: keeps files in ranked order in Finder, and stops two
+            # clips with the same title from overwriting each other.
+            destination = destination_dir / (
+                f"{clip.rank:02d}_"
+                + export.output_filename(clip.title or f"clip-{clip.rank}", ratio)
             )
 
             request = export.ExportRequest(

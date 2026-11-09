@@ -205,6 +205,12 @@ def build_clips(
             )
             continue
 
+        title = candidate.title.strip()
+        if _is_placeholder(title):
+            # A small model echoed the schema's "<...>" description instead of
+            # writing a title; fall back to the clip's opening words.
+            title = ""
+
         clips.append(
             Clip(
                 id=new_id(),
@@ -213,7 +219,7 @@ def build_clips(
                 end_s=boundary.end_s,
                 start_word=boundary.start_word,
                 end_word=boundary.end_word,
-                title=candidate.title.strip()
+                title=title
                 or transcript.text_between(
                     boundary.start_word, min(boundary.start_word + 8, boundary.end_word)
                 ),
@@ -233,6 +239,10 @@ def build_clips(
 
     log.info("Produced %d final clips.", len(clips))
     return clips
+
+
+def _is_placeholder(text: str) -> bool:
+    return text.startswith("<") and text.endswith(">")
 
 
 def dedupe(

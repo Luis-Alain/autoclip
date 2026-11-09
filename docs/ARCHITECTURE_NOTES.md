@@ -171,6 +171,14 @@ add an `MlxWhisperBackend`, and pick between them in `transcribe.transcribe()` b
 `whisper.backend` setting (`auto|faster-whisper|mlx`). `auto` picks mlx on darwin/arm64 when it can be imported.
 Both must produce the schema in section 3. `mlx_whisper.transcribe()` returns segments with `words[{word,start,end}]`, so the mapping is direct.
 
+### Update (fork): transcription backends are implemented
+
+`transcribe.transcribe()` now dispatches via `resolve_backend()` (`whisper.backend`: `auto|faster-whisper|mlx`).
+`auto` = mlx-whisper (`whisper.mlx_model`, default `mlx-community/whisper-large-v3-turbo`) on arm64 Macs
+when installed, else faster-whisper. Before transcribing with a fixed `whisper.language`, `verify_language()`
+samples 3×30 s and switches to the detected language on a majority mismatch (`whisper.verify_language`).
+Export prefers `h264_videotoolbox` when `system.FFmpegInfo.videotoolbox_works`.
+
 ## 7. Tests
 
 - ~287 `def test…` functions in `tests/` across 12 files: captions, boundaries, export_render, ffmpeg, config, api, providers, reframe, db, paths, system, pipeline_e2e.

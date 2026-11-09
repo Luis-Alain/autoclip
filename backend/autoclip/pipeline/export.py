@@ -186,7 +186,25 @@ def encoder_args(settings: ExportSettings) -> list[str]:
     rather than ``-crf``, and the two scales are close enough that reusing the
     configured value keeps output consistent between machines.
     """
-    if settings.prefer_hardware_encoder and report().ffmpeg.nvenc_works:
+    ff = report().ffmpeg
+    if settings.prefer_hardware_encoder and ff.videotoolbox_works:
+        # Apple's media engine. Its constant-quality knob is -q:v (1-100, higher
+        # is better); 100 - 2*crf maps the default crf 18 to 64, which looks
+        # equivalent to libx264 at crf 18 on screen content.
+        quality = max(1, min(100, 100 - 2 * settings.crf))
+        return [
+            "-c:v",
+            "h264_videotoolbox",
+            "-q:v",
+            str(quality),
+            "-profile:v",
+            "high",
+            # Fall back to Apple's software encoder rather than failing if the
+            # hardware session can't be opened (e.g. too many concurrent ones).
+            "-allow_sw",
+            "1",
+        ]
+    if settings.prefer_hardware_encoder and ff.nvenc_works:
         return [
             "-c:v",
             "h264_nvenc",

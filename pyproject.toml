@@ -39,6 +39,9 @@ dependencies = [
   "yt-dlp>=2026.1.1",
   # Transcription
   "faster-whisper>=1.1",
+  # Whisper on the Apple Silicon GPU. Installed only on arm64 Macs, where it is
+  # the default backend; faster-whisper there would run on the CPU.
+  "mlx-whisper>=0.4; sys_platform == 'darwin' and platform_machine == 'arm64'",
   # Reframe
   "mediapipe>=0.10.14",
   # No [opencv] extra: scenedetect 0.7 dropped it and now depends on

@@ -86,6 +86,8 @@ class FFmpegInfo:
     nvenc_error: str = ""
     filters: set[str] = field(default_factory=set)
     ffprobe_found: bool = False
+    #: h264_videotoolbox (Apple's hardware media engine) encodes on this machine.
+    videotoolbox_works: bool = False
 
     @property
     def missing_filters(self) -> list[str]:
@@ -156,6 +158,8 @@ class OptionalDeps:
     scenedetect: bool = False
     whisperx: bool = False
     faster_whisper: bool = False
+    #: Whisper on the Apple Silicon GPU via MLX.
+    mlx_whisper: bool = False
     keyring_backend: bool = False
     ollama_running: bool = False
     ollama_models: list[str] = field(default_factory=list)
@@ -208,6 +212,8 @@ def probe_ffmpeg() -> FFmpegInfo:
     info.has_nvenc = "h264_nvenc" in encoders
     if info.has_nvenc:
         info.nvenc_works, info.nvenc_error = _probe_nvenc(exe)
+    if "h264_videotoolbox" in encoders:
+        info.videotoolbox_works = _probe_videotoolbox(exe)
 
     filters = _run([exe, "-hide_banner", "-filters"])
     # Filter listing rows look like: " ... crop   V->V   Crop the input video."
@@ -218,6 +224,31 @@ def probe_ffmpeg() -> FFmpegInfo:
             info.filters.add(parts[1])
 
     return info
+
+
+def _probe_videotoolbox(exe: str) -> bool:
+    """Try a tiny VideoToolbox encode. Listed is not the same as usable (e.g. in a VM)."""
+    output = _run(
+        [
+            exe,
+            "-hide_banner",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=256x256:d=0.1",
+            "-c:v",
+            "h264_videotoolbox",
+            "-frames:v",
+            "1",
+            "-f",
+            "null",
+            "-",
+        ]
+    )
+    return "error" not in output.lower()
 
 
 def _probe_nvenc(exe: str) -> tuple[bool, str]:
@@ -330,6 +361,7 @@ def probe_optional_deps() -> OptionalDeps:
         ("scenedetect", "scenedetect"),
         ("whisperx", "whisperx"),
         ("faster_whisper", "faster_whisper"),
+        ("mlx_whisper", "mlx_whisper"),
     ):
         setattr(deps, attr, _module_available(module))
 

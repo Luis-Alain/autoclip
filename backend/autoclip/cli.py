@@ -172,10 +172,31 @@ def doctor() -> None:
     # Only meaningful for NVIDIA. Apple Silicon also reports a device name, and
     # checking it for CUDA produced a false "missing cuDNN" failure on every Mac.
     if gpu.accel == "mps":
+        from .pipeline.transcribe import TranscriptionError, resolve_backend
+
+        try:
+            backend = resolve_backend(settings.whisper)
+        except TranscriptionError:
+            backend = "faster-whisper"
+        if backend == "mlx":
+            accel_table.add_row("Whisper", OK, f"Apple GPU via MLX ({settings.whisper.mlx_model})")
+        else:
+            accel_table.add_row(
+                "Whisper",
+                WARN,
+                "CPU via faster-whisper (no Metal backend)",
+            )
+            remediation.append(
+                "Transcription is running on the CPU. Install the Apple GPU backend with "
+                "[cyan]uv pip install mlx-whisper[/cyan] and keep "
+                "[cyan]whisper.backend[/cyan] on [cyan]auto[/cyan]."
+            )
         accel_table.add_row(
-            "Whisper device",
-            OK,
-            "CPU (faster-whisper has no Metal backend on Apple Silicon)",
+            "Video encoder",
+            _status(report.ffmpeg.videotoolbox_works, warn_only=True),
+            "h264_videotoolbox (Apple media engine)"
+            if report.ffmpeg.videotoolbox_works
+            else "libx264 (CPU) — VideoToolbox unavailable",
         )
     elif gpu.name and not gpu.ctranslate2_cuda:
         accel_table.add_row("CUDA for Whisper", FAIL, "CTranslate2 cannot see the GPU")
@@ -193,10 +214,11 @@ def doctor() -> None:
             "Supported compute types", OK, ", ".join(sorted(gpu.supported_compute_types))
         )
 
-    reason = ""
-    if gpu.accel == "cuda" and not gpu.compute_type.startswith("float16"):
-        reason = " (this GPU has no usable fp16 path)"
-    accel_table.add_row("Whisper compute type", OK, f"{gpu.compute_type}{reason}")
+    if gpu.accel != "mps":
+        reason = ""
+        if gpu.accel == "cuda" and not gpu.compute_type.startswith("float16"):
+            reason = " (this GPU has no usable fp16 path)"
+        accel_table.add_row("Whisper compute type", OK, f"{gpu.compute_type}{reason}")
 
     override = settings.whisper.compute_type
     if override:
@@ -226,6 +248,12 @@ def doctor() -> None:
     dep_table.add_column("Used for")
 
     dep_table.add_row("faster-whisper", _status(deps.faster_whisper), "transcription")
+    if gpu.accel == "mps":
+        dep_table.add_row(
+            "mlx-whisper",
+            _status(deps.mlx_whisper, warn_only=True),
+            "transcription on the Apple GPU",
+        )
     dep_table.add_row("mediapipe", _status(deps.mediapipe), "face detection / reframe")
     dep_table.add_row("scenedetect", _status(deps.scenedetect), "shot boundaries")
     dep_table.add_row(

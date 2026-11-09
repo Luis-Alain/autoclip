@@ -114,7 +114,7 @@ class DetectionConfig:
     language: str = ""
     #: Prompt file stem in ``autoclip/prompts/``. Versioned so contributors can
     #: iterate on prompts without touching code.
-    prompt_version: str = "highlight_v1"
+    prompt_version: str = "highlight_v2"
     temperature: float = 0.3
 
 
@@ -228,8 +228,29 @@ def load_prompt(version: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+#: ISO 639-1 codes Whisper commonly reports, for naming the language in prompts.
+LANGUAGE_NAMES = {
+    "es": "Spanish",
+    "en": "English",
+    "pt": "Portuguese",
+    "fr": "French",
+    "de": "German",
+    "it": "Italian",
+    "ar": "Arabic",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "zh": "Chinese",
+    "ru": "Russian",
+}
+
+
 def render_window_prompt(window: TranscriptWindow, config: DetectionConfig) -> str:
     """Build the user message for one transcript window."""
+    language_note = ""
+    if config.language:
+        name = LANGUAGE_NAMES.get(config.language, config.language)
+        language_note = f"The transcript is in {name}. Write title, hook and reason in {name}.\n"
+
     speaker_note = ""
     if window.speakers:
         speaker_note = (
@@ -240,6 +261,7 @@ def render_window_prompt(window: TranscriptWindow, config: DetectionConfig) -> s
     return (
         f"Transcript section, words {window.first_word} to {window.last_word}.\n"
         f"Each word is tagged with its index as [index]word.\n"
+        f"{language_note}"
         f"{speaker_note}\n"
         f"Clip length must be between {config.min_duration_s:.0f} and "
         f"{config.max_duration_s:.0f} seconds.\n"

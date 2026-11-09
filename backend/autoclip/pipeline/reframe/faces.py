@@ -96,6 +96,13 @@ def sample_faces(
     Preconditions:
         video exists and has a video stream.
     """
+    # MediaPipe logs through glog/absl to stderr and prints several "W0000 ..."
+    # warnings per clip. Only errors are worth showing; must be set before import.
+    import os
+
+    os.environ.setdefault("GLOG_minloglevel", "2")
+    os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+
     try:
         import cv2
         import mediapipe as mp
