@@ -153,8 +153,8 @@ Campaign profiles live in `campaigns/<name>.yaml`: `min_len, max_len, allowed_pl
 | # | Milestone | Done when |
 |---|---|---|
 | M0 | Architecture notes | `docs/ARCHITECTURE_NOTES.md` exists and Luis has approved the plan |
-| M1 | Raw export on a local file | `autoclip raw video.mp4 --chat none` produces ranked 16:9 clips with handles and a manifest |
-| M1b | Vertical export | The same command also writes `vertical/*.mp4`: 9:16, speaker-tracked, burned-in captions in the transcript's language, listed in the manifest (`vertical_file`) |
+| M1 | Raw export on a local file | ✅ Done: `autoclip raw video.mp4 --chat none` produces ranked 16:9 clips with handles and a manifest |
+| M1b | Vertical export | ✅ Done: the same command also writes `vertical/*.mp4`: 9:16, speaker-tracked, burned-in captions in the transcript's language, listed in the manifest (`vertical_file`) |
 | M2 | mlx-whisper backend | ✅ Done early (commit `ffcde3a`): mlx-whisper large-v3-turbo on the Apple GPU, VideoToolbox encode, language verification |
 | M3 | Premiere XML | `timeline.xml` imports cleanly into Premiere, with markers |
 | M4 | Chat spikes | On a Twitch VOD with chat, only spike windows are transcribed. Output is logged as minutes processed vs total minutes |

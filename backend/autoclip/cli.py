@@ -841,5 +841,12 @@ def _format_duration(seconds: float) -> str:
     return f"{minutes}:{secs:02d}"
 
 
+# The raw-clips pipeline lives in its own package (autoclip/raw) to keep this
+# upstream file's diff small.
+from .raw.cli import raw as _raw_command  # noqa: E402
+
+app.command("raw")(_raw_command)
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()

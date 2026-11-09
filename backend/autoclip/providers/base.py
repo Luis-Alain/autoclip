@@ -61,6 +61,9 @@ class ClipCandidate(BaseModel):
     hook: str = ""
     score: int = Field(default=50, ge=0, le=100)
     reason: str = ""
+    #: The clip relies on something said outside it. Only the raw-clips prompt
+    #: asks for this; other prompts leave the default.
+    needs_context: bool = False
 
     @field_validator("title", "hook", "reason", mode="before")
     @classmethod
@@ -116,6 +119,8 @@ class DetectionConfig:
     #: iterate on prompts without touching code.
     prompt_version: str = "highlight_v2"
     temperature: float = 0.3
+    #: Free text appended to the user message, e.g. chat activity for a window.
+    extra_context: str = ""
 
 
 @dataclass
@@ -251,6 +256,8 @@ def render_window_prompt(window: TranscriptWindow, config: DetectionConfig) -> s
         name = LANGUAGE_NAMES.get(config.language, config.language)
         language_note = f"The transcript is in {name}. Write title, hook and reason in {name}.\n"
 
+    extra = f"\n{config.extra_context.strip()}\n" if config.extra_context.strip() else ""
+
     speaker_note = ""
     if window.speakers:
         speaker_note = (
@@ -265,7 +272,8 @@ def render_window_prompt(window: TranscriptWindow, config: DetectionConfig) -> s
         f"{speaker_note}\n"
         f"Clip length must be between {config.min_duration_s:.0f} and "
         f"{config.max_duration_s:.0f} seconds.\n"
-        f"Return at most {config.max_clips} clips.\n\n"
+        f"Return at most {config.max_clips} clips.\n"
+        f"{extra}\n"
         f"---\n{window.text}\n---\n\n"
         "Respond with ONLY a JSON object matching the schema. No prose, no markdown fences."
     )
