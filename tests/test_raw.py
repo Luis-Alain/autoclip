@@ -185,19 +185,30 @@ class _ScriptedProvider(LLMProvider):
         return ProviderStatus(name=self.name, available=True)
 
     async def detect_highlights(self, window, config):  # type: ignore[no-untyped-def]
+        # The selector now sends one local moment at a time. Keep the two clips
+        # this test renders, taken from whichever moment covers that part.
+        import re
+
+        note = config.extra_context or ""
+        proposed = re.search(r"proposed=([0-9.]+)-", note)
+        words = re.search(r"words (\d+)–(\d+)", note)
+        if proposed is None or words is None or float(proposed.group(1)) >= 20:
+            return ClipCandidates(clips=[])
+        opening = float(proposed.group(1)) < 1
+        start = int(words.group(1))
+        end = min(int(words.group(2)), start + 6, window.last_word)
+        if end <= start:
+            return ClipCandidates(clips=[])
         return ClipCandidates(
             clips=[
                 ClipCandidate(
-                    start_word_index=4,
-                    end_word_index=13,
-                    title="La jugada del año",
-                    score=88,
+                    start_word_index=start,
+                    end_word_index=end,
+                    title="La jugada del año" if opening else "Segundo momento",
+                    score=88 if opening else 75,
                     reason="r",
-                    needs_context=True,
-                ),
-                ClipCandidate(
-                    start_word_index=24, end_word_index=33, title="Segundo momento", score=75
-                ),
+                    needs_context=opening,
+                )
             ]
         )
 
@@ -260,4 +271,5 @@ def test_raw_pipeline_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert clip_file.stat().st_mtime == mtime
     assert (folder / "source.json").exists()
     assert (folder / "highlights.json").exists()
+    assert (folder / "work" / "candidates.json").exists()
     assert (folder / "transcript" / "full.json").exists()

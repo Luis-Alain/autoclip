@@ -5,6 +5,11 @@ different is the prompt (stream moments, titles in the transcript's language,
 ``needs_context``) and that the result keeps those extra fields instead of
 being flattened into a database row.
 
+The model does not see 8-minute slices of the VOD. A local pass
+(:mod:`autoclip.raw.candidates`) proposes moments from topic shifts, pauses,
+speaker changes and loudness peaks, and each model call is one of those
+moments plus a few seconds of lead-in.
+
 Constraints are enforced here in code, not trusted to the prompt: the length
 range, overlap dedupe (higher score wins), and the top-N cut.
 """
@@ -14,21 +19,30 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from dataclasses import replace
+from pathlib import Path
 
 from ..pipeline import boundaries
-from ..pipeline.highlights import build_windows, dedupe
+from ..pipeline.highlights import dedupe
 from ..pipeline.prepare import Silence
 from ..pipeline.transcript import Transcript
-from ..providers import ClipCandidate, DetectionConfig, LLMProvider, TranscriptWindow
-from .models import RawClip
+from ..providers import ClipCandidate, DetectionConfig, LLMProvider
+from .candidates import (
+    BLOCK_S,
+    CANDIDATES_VERSION,
+    build_candidates,
+    for_model,
+    note_for,
+    window_for,
+)
+from .models import CandidatesArtifact, MomentCandidate, RawClip, write_model
 
 log = logging.getLogger(__name__)
 
 PROMPT_VERSION = "highlight_raw_v1"
 
-#: Upper bound on clips requested per transcript window. The global top-N is
-#: applied after merging all windows.
-PER_WINDOW_MAX = 8
+#: One moment per call. The local pass already split the VOD; asking the model
+#: for several clips inside one moment just re-merges what we separated.
 
 #: Two clips sharing more than this fraction of their words are the same moment.
 OVERLAP_IOU = 0.4
@@ -49,46 +63,67 @@ async def select_clips(
     max_s: float,
     top: int,
     silences: list[Silence] | None = None,
+    audio: Path | None = None,
+    candidates_out: Path | None = None,
     on_progress: Callable[[float], None] | None = None,
 ) -> list[RawClip]:
-    """Ask the provider for candidates window by window, then rank them."""
-    windows = build_windows(transcript)
-    if not windows:
-        raise SelectionError("The transcript is empty, so there is nothing to clip.")
+    """Score locally proposed moments, then rank whatever the model keeps."""
+    moments = build_candidates(
+        transcript, min_s=min_s, max_s=max_s, silences=silences, audio=audio
+    )
+    chosen = for_model(moments, top)
+    sent = {(m.start_word, m.end_word) for m in chosen}
+    for moment in moments:
+        moment.sent = (moment.start_word, moment.end_word) in sent
+    if candidates_out is not None:
+        write_model(
+            candidates_out,
+            CandidatesArtifact(version=CANDIDATES_VERSION, block_s=BLOCK_S, candidates=moments),
+        )
+    if not chosen:
+        raise SelectionError(
+            "No candidate moments were found. The transcript may be shorter than "
+            f"{min_s:.0f}s, or there is nothing to clip."
+        )
 
     config = DetectionConfig(
         min_duration_s=min_s,
         max_duration_s=max_s,
-        max_clips=min(top, PER_WINDOW_MAX),
+        max_clips=1,
         language=transcript.language,
         prompt_version=PROMPT_VERSION,
     )
-    concurrency = LOCAL_CONCURRENCY if provider.name == "ollama" else HOSTED_CONCURRENCY
+    concurrency = LOCAL_CONCURRENCY if provider.name in ("ollama", "mlx") else HOSTED_CONCURRENCY
     semaphore = asyncio.Semaphore(concurrency)
     done = 0
+    total = len(chosen)
 
-    async def run_window(window: TranscriptWindow) -> list[ClipCandidate]:
+    async def run_moment(moment: MomentCandidate) -> list[ClipCandidate]:
         nonlocal done
+        window = window_for(transcript, moment)
+        moment_config = replace(config, extra_context=note_for(moment))
         async with semaphore:
             try:
-                result = await provider.detect_highlights(window, config)
+                result = await provider.detect_highlights(window, moment_config)
                 found = result.clips
             except Exception as exc:
-                # One bad window shouldn't lose all the others.
+                # One bad moment shouldn't lose all the others.
                 log.warning(
-                    "Window %d-%d failed (%s); continuing.",
-                    window.first_word,
-                    window.last_word,
+                    "Moment %d-%d failed (%s); continuing.",
+                    moment.start_word,
+                    moment.end_word,
                     exc,
                 )
                 found = []
             done += 1
             if on_progress:
-                on_progress(done / len(windows))
+                on_progress(done / total)
             return found
 
-    log.info("Detecting highlights in %d window(s) with %s.", len(windows), provider.name)
-    groups = await asyncio.gather(*(run_window(w) for w in windows))
+    log.info(
+        "Scoring %d of %d local moment(s) with %s.", len(chosen), len(moments), provider.name
+    )
+    groups = await asyncio.gather(*(run_moment(m) for m in chosen))
     candidates = [c for group in groups for c in group]
     log.info("Provider proposed %d raw candidates.", len(candidates))
 

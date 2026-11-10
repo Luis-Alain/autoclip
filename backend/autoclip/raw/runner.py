@@ -4,7 +4,7 @@
       source.json          the VOD's metadata
       layout_detect.jpg    the detected webcam (green) and crops, on a source frame
       layout_preview.jpg   one 9:16 split frame, to check the crops by eye
-      work/                audio.wav, silences.json, layout.json, crops, captions
+      work/                audio.wav, silences.json, candidates.json, layout.json, crops, captions
       transcript/full.json word-level transcript (absolute seconds)
       highlights.json      the ranked selection + the params that produced it
       clips/               9:16, speaker-tracked, burned-in captions
@@ -32,6 +32,7 @@ from ..pipeline.prepare import Silence
 from ..pipeline.transcript import Transcript
 from ..providers import build_provider
 from ..system import report
+from .candidates import CANDIDATES_VERSION
 from .export_premiere import write_timeline
 from .export_split import export_composite_clip, render_detection, render_preview
 from .export_vertical import clip_filename, export_vertical_clip, is_vertical_file
@@ -211,6 +212,7 @@ class RawRunner:
             "top": self.options.top,
             "min_s": self.options.min_s,
             "max_s": self.options.max_s,
+            "candidates": CANDIDATES_VERSION,
         }
 
         if path.exists():
@@ -229,6 +231,8 @@ class RawRunner:
             max_s=self.options.max_s,
             top=self.options.top,
             silences=silences,
+            audio=self.work / "audio.wav",
+            candidates_out=self.work / "candidates.json",
             on_progress=lambda f: self._report(
                 "highlights", f, f"Finding moments with {provider.name}"
             ),

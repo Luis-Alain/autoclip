@@ -48,6 +48,35 @@ class RawClip(BaseModel):
         return self.end_s - self.start_s
 
 
+class MomentCandidate(BaseModel):
+    """One locally proposed moment, before the language model scores it.
+
+    Written to ``work/candidates.json``. ``sent`` is true when this moment was
+    included in a model call; the rest stay on disk so the choice is auditable.
+    """
+
+    start_s: float
+    end_s: float
+    start_word: int
+    end_word: int
+    #: topic_shift, pause, speaker, loud, span — a moment can carry more than one.
+    reasons: list[str]
+    #: 0–1 rank used to decide which moments are worth a model call.
+    prior: float
+    excerpt: str
+    similarity: float | None = None
+    loudness_z: float | None = None
+    sent: bool = False
+
+
+class CandidatesArtifact(BaseModel):
+    """``work/candidates.json``."""
+
+    version: str = "v1"
+    block_s: float = 20.0
+    candidates: list[MomentCandidate] = Field(default_factory=list)
+
+
 class HighlightsArtifact(BaseModel):
     """``highlights.json``: the selection plus the parameters that produced it.
 
