@@ -146,6 +146,9 @@
     outline: none;
     border-bottom-color: var(--color-sodium-500);
   }
+  select.field {
+    background: var(--color-ink-900);
+  }
 
   .btn {
     display: inline-flex;

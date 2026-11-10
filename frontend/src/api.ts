@@ -222,6 +222,32 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
+export interface RawClipResult {
+  rank: number
+  file: string
+  score: number
+  hook_title: string
+  reason: string
+  layout: string
+  duration: number
+  url: string
+}
+
+export interface RawRun {
+  id: string
+  title: string
+  created_at: string
+  status: 'running' | 'done' | 'failed'
+  progress: number
+  message: string
+  error: string | null
+  provider: string
+  layout: string
+  folder: string
+  clips: RawClipResult[]
+  timeline_url: string | null
+}
+
 export const api = {
   health: () => request<{ status: string; version: string }>('/api/health'),
   system: () => request<SystemStatus>('/api/system'),
@@ -296,6 +322,10 @@ export const api = {
     request<void>(`/api/settings/secrets/${key}`, { method: 'DELETE' }),
 
   mediaUrl: (jobId: string) => `/api/jobs/${jobId}/media`,
+
+  listRawRuns: () => request<RawRun[]>('/api/raw/runs'),
+  getRawRun: (id: string) => request<RawRun>(`/api/raw/runs/${id}`),
+  startRawRun: (form: FormData) => request<RawRun>('/api/raw/runs', { method: 'POST', body: form }),
 }
 
 /** Format seconds as m:ss, or h:mm:ss past an hour. */

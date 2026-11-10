@@ -28,9 +28,9 @@ export function App() {
 
           <nav className="flex items-baseline gap-6">
             <TopLink to="/" end>
-              New
+              Nuevo
             </TopLink>
-            <TopLink to="/settings">Settings</TopLink>
+            <TopLink to="/settings">Ajustes</TopLink>
           </nav>
 
           <div className="ml-auto flex items-baseline gap-5">
@@ -84,7 +84,7 @@ function SystemBadge({ system }: { system: SystemStatus }) {
     <div className="hidden items-baseline gap-4 text-xs md:flex">
       <span className="numeric text-ink-400">
         {accel}
-        {system.gpu_name && accel === 'CUDA' && (
+        {system.gpu_name && (
           <span className="text-ink-600"> · {system.gpu_name.replace('NVIDIA GeForce ', '')}</span>
         )}
       </span>

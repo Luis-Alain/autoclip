@@ -194,6 +194,20 @@ class TestDetectionLoop:
         assert len(provider.prompts) == 1
 
 
+def test_openai_drops_temperature_before_response_format() -> None:
+    from autoclip.providers.openai_provider import _without_rejected_parameter
+
+    request = {"model": "gpt", "temperature": 0.3, "response_format": {"type": "json_object"}}
+    error = Exception(
+        "Error code: 400 - Unsupported value: 'temperature' does not support 0.3 "
+        "with this model. Only the default (1) value is supported."
+    )
+    relaxed = _without_rejected_parameter(request, error)
+    assert relaxed is not None
+    assert "temperature" not in relaxed
+    assert "response_format" in relaxed
+
+
 class TestRegistry:
     def test_all_four_providers_are_registered(self) -> None:
         from autoclip.providers import PROVIDERS

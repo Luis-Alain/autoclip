@@ -1,117 +1,101 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import {
-  ApiError,
-  api,
-  formatDuration,
-  type Job,
-  type JobSettingsOverrides,
-  type ProviderStatus,
-} from '../api'
+import { ApiError, api, formatDuration, type RawRun } from '../api'
 import { ErrorNote } from '../components/ErrorNote'
+
+const LAYOUTS = [
+  { id: 'auto', label: 'Automático' },
+  { id: 'face', label: 'Persona' },
+  { id: 'split', label: 'Pantalla dividida' },
+  { id: 'blur', label: 'Juego con blur' },
+] as const
+
+const PROVIDERS = [
+  { id: 'mlx', label: 'Gemma en el M4' },
+  { id: 'openai', label: 'OpenAI' },
+  { id: 'ollama', label: 'Ollama' },
+  { id: 'gemini', label: 'Gemini' },
+  { id: 'anthropic', label: 'Claude' },
+] as const
 
 export function Ingest() {
   const navigate = useNavigate()
-  const [url, setUrl] = useState('')
-  const [busy, setBusy] = useState<'url' | 'file' | null>(null)
-  const [error, setError] = useState<ApiError | Error | null>(null)
-  const [jobs, setJobs] = useState<Job[]>([])
-  const [providers, setProviders] = useState<ProviderStatus[]>([])
-  const [overrides, setOverrides] = useState<JobSettingsOverrides>({})
-  const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+  const [url, setUrl] = useState('')
+  const [file, setFile] = useState<File | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const [lang, setLang] = useState('es')
+  const [provider, setProvider] = useState('mlx')
+  const [model, setModel] = useState('')
+  const [layout, setLayout] = useState('auto')
+  const [top, setTop] = useState(20)
+  const [minS, setMinS] = useState(15)
+  const [maxS, setMaxS] = useState(60)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<ApiError | Error | null>(null)
+  const [runs, setRuns] = useState<RawRun[]>([])
 
   useEffect(() => {
-    api.listJobs(8).then(setJobs).catch(() => undefined)
-    api.providerStatus().then(setProviders).catch(() => undefined)
+    api.listRawRuns().then(setRuns).catch(() => undefined)
   }, [])
 
-  const start = useCallback(
-    async (kind: 'url' | 'file', run: () => Promise<{ id: string }>) => {
-      setBusy(kind)
-      setError(null)
-      try {
-        const source = await run()
-        const job = await api.createJob(source.id, overrides)
-        navigate(`/jobs/${job.id}`)
-      } catch (err) {
-        setError(err as Error)
-      } finally {
-        setBusy(null)
-      }
-    },
-    [navigate, overrides],
-  )
-
-  const submitUrl = (event: React.FormEvent) => {
-    event.preventDefault()
-    if (!url.trim()) return
-    void start('url', () => api.ingestYouTube(url.trim()))
-  }
-
-  const submitFile = (file: File) => void start('file', () => api.uploadSource(file))
-
-  const usableProvider = providers.find((p) => p.available)
+  const start = useCallback(async () => {
+    if (!url.trim() && !file) return
+    setBusy(true)
+    setError(null)
+    const form = new FormData()
+    if (file) form.append('file', file)
+    if (url.trim()) form.append('url', url.trim())
+    form.append('lang', lang)
+    form.append('provider', provider)
+    form.append('model', model)
+    form.append('layout', layout)
+    form.append('top', String(top))
+    form.append('min_s', String(minS))
+    form.append('max_s', String(maxS))
+    try {
+      const run = await api.startRawRun(form)
+      navigate(`/runs/${run.id}`)
+    } catch (err) {
+      setError(err as Error)
+    } finally {
+      setBusy(false)
+    }
+  }, [file, lang, layout, maxS, minS, model, navigate, provider, top, url])
 
   return (
     <div className="pt-14">
-      {/* Masthead. Left-aligned and asymmetric — the field is the subject, not
-          a centred hero card. */}
       <div className="rise max-w-3xl">
-        <p className="eyebrow">Local · No accounts · No watermarks</p>
+        <p className="eyebrow">Local · GPU del M4 · Premiere</p>
         <h1 className="mt-5 font-display text-[clamp(2.75rem,7vw,5.5rem)] leading-[0.95] text-ink-100">
-          Long video in.
+          El video entra.
           <br />
-          <span className="italic text-sodium-500">Shorts</span> out.
+          <span className="italic text-sodium-500">Los momentos</span> salen.
         </h1>
+        <p className="mt-6 max-w-xl text-sm leading-relaxed text-ink-400">
+          Transcribe, marca cambios de tema, pausas y picos, y Gemma (o OpenAI) se queda
+          con los que valen. Cada clip sale en 9:16, listo para Premiere.
+        </p>
       </div>
 
       <div className="mt-16 grid gap-x-16 gap-y-12 lg:grid-cols-[1.35fr_1fr]">
-        {/* URL */}
         <section className="rise" style={{ animationDelay: '90ms' }}>
-          <form onSubmit={submitUrl}>
-            <label htmlFor="url" className="eyebrow">
-              Paste a link
-            </label>
-            <div className="mt-3 flex items-end gap-4">
-              <input
-                id="url"
-                className="field font-display text-xl md:text-2xl"
-                placeholder="https://youtube.com/watch?v=…"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                autoComplete="off"
-                spellCheck={false}
-                disabled={busy !== null}
-              />
-              <button
-                type="submit"
-                className="btn btn-primary shrink-0"
-                disabled={busy !== null || !url.trim()}
-              >
-                {busy === 'url' ? 'Fetching…' : 'Start'}
-              </button>
-            </div>
-          </form>
-
-          <p className="mt-3 text-xs leading-relaxed text-ink-500">
-            Only download video you own or have the rights to process.
-          </p>
-
-          <AdvancedOptions
-            open={advancedOpen}
-            onToggle={() => setAdvancedOpen((v) => !v)}
-            overrides={overrides}
-            onChange={setOverrides}
-            providers={providers}
+          <label htmlFor="url" className="eyebrow">
+            Enlace de YouTube
+          </label>
+          <input
+            id="url"
+            className="field mt-3 font-display text-xl md:text-2xl"
+            placeholder="https://youtube.com/watch?v=…"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            disabled={busy}
           />
-        </section>
 
-        {/* Upload */}
-        <section className="rise" style={{ animationDelay: '160ms' }}>
-          <p className="eyebrow">Or drop a file</p>
+          <p className="eyebrow mt-10">O un archivo</p>
           <div
             onDragOver={(e) => {
               e.preventDefault()
@@ -121,280 +105,177 @@ export function Ingest() {
             onDrop={(e) => {
               e.preventDefault()
               setDragging(false)
-              const file = e.dataTransfer.files[0]
-              if (file) submitFile(file)
+              const dropped = e.dataTransfer.files[0]
+              if (dropped) setFile(dropped)
             }}
             className={[
-              'mt-3 flex min-h-52 cursor-pointer flex-col items-center justify-center gap-2 border border-dashed px-6 text-center transition-colors duration-200',
-              dragging
-                ? 'border-sodium-500 bg-sodium-700/10'
-                : 'border-ink-700 hover:border-ink-600',
+              'mt-3 flex items-end justify-between gap-4 border-b py-4',
+              dragging ? 'border-sodium-500' : 'border-ink-700',
             ].join(' ')}
-            onClick={() => fileInput.current?.click()}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') fileInput.current?.click()
-            }}
           >
-            <span className="font-display text-2xl text-ink-200">
-              {busy === 'file' ? 'Uploading…' : 'Drop video or audio'}
-            </span>
-            <span className="text-xs text-ink-500">mp4 · mov · mkv · webm · mp3 · wav · m4a</span>
-          </div>
-          <input
-            ref={fileInput}
-            type="file"
-            className="hidden"
-            accept="video/*,audio/*"
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (file) submitFile(file)
-              e.target.value = ''
-            }}
-          />
-        </section>
-      </div>
-
-      {error && (
-        <div className="mt-10 max-w-3xl">
-          <ErrorNote error={error} onDismiss={() => setError(null)} />
-        </div>
-      )}
-
-      {providers.length > 0 && !usableProvider && (
-        <p className="mt-10 max-w-3xl border-l-2 border-sodium-600 pl-4 text-sm text-ink-300">
-          No AI provider is reachable yet, so clip selection will fail. Add an API key or
-          start Ollama in{' '}
-          <a href="/settings" className="text-sodium-500 underline underline-offset-4">
-            Settings
-          </a>
-          .
-        </p>
-      )}
-
-      <RecentJobs jobs={jobs} />
-    </div>
-  )
-}
-
-function AdvancedOptions({
-  open,
-  onToggle,
-  overrides,
-  onChange,
-  providers,
-}: {
-  open: boolean
-  onToggle: () => void
-  overrides: JobSettingsOverrides
-  onChange: (next: JobSettingsOverrides) => void
-  providers: ProviderStatus[]
-}) {
-  const set = <K extends keyof JobSettingsOverrides>(key: K, value: JobSettingsOverrides[K]) =>
-    onChange({ ...overrides, [key]: value })
-
-  return (
-    <div className="mt-8">
-      <button type="button" onClick={onToggle} className="btn btn-quiet -ml-1">
-        <span
-          className="inline-block transition-transform duration-300"
-          style={{ transform: open ? 'rotate(90deg)' : 'none' }}
-          aria-hidden
-        >
-          ›
-        </span>
-        {open ? 'Hide options' : 'Options'}
-      </button>
-
-      {/* grid-template-rows rather than height, so the reveal animates without
-          touching layout properties. */}
-      <div
-        className="grid transition-[grid-template-rows] duration-400 ease-[cubic-bezier(0.16,1,0.3,1)]"
-        style={{ gridTemplateRows: open ? '1fr' : '0fr' }}
-      >
-        <div className="overflow-hidden">
-          <div className="grid gap-x-8 gap-y-5 pt-5 sm:grid-cols-2">
-            <Selector
-              label="Provider"
-              value={overrides.provider ?? ''}
-              onChange={(v) => set('provider', v || undefined)}
-              options={[
-                { value: '', label: 'Use default' },
-                ...providers.map((p) => ({
-                  value: p.name,
-                  label: p.available ? p.name : `${p.name} — unavailable`,
-                  disabled: !p.available,
-                })),
-              ]}
-            />
-            <Selector
-              label="Whisper model"
-              value={overrides.whisper_model ?? ''}
-              onChange={(v) => set('whisper_model', v || undefined)}
-              options={[
-                { value: '', label: 'Use default' },
-                { value: 'tiny', label: 'tiny — fastest, roughest' },
-                { value: 'base', label: 'base' },
-                { value: 'small', label: 'small — balanced' },
-                { value: 'medium', label: 'medium' },
-                { value: 'large-v3', label: 'large-v3 — slowest, best' },
-              ]}
-            />
-            <NumberField
-              label="Max clips"
-              value={overrides.max_clips}
-              placeholder="10"
-              min={1}
-              max={50}
-              onChange={(v) => set('max_clips', v)}
-            />
-            <div className="grid grid-cols-2 gap-4">
-              <NumberField
-                label="Min length (s)"
-                value={overrides.min_duration_s}
-                placeholder="20"
-                min={5}
-                max={300}
-                onChange={(v) => set('min_duration_s', v)}
-              />
-              <NumberField
-                label="Max length (s)"
-                value={overrides.max_duration_s}
-                placeholder="90"
-                min={5}
-                max={300}
-                onChange={(v) => set('max_duration_s', v)}
-              />
+            <div className="min-w-0">
+              <p className="truncate text-sm text-ink-200">
+                {file ? file.name : 'Suelta un mp4, mov o mkv'}
+              </p>
+              <p className="mt-1 text-xs text-ink-500">
+                {file ? 'Se procesa donde está, sin copiarlo dos veces.' : 'También puedes elegirlo.'}
+              </p>
             </div>
-            <label className="flex items-center gap-3 text-sm text-ink-200 sm:col-span-2">
+            <button
+              type="button"
+              className="btn btn-ghost shrink-0"
+              onClick={() => fileInput.current?.click()}
+              disabled={busy}
+            >
+              Elegir
+            </button>
+            <input
+              ref={fileInput}
+              type="file"
+              accept="video/*,.mkv,.mov,.mp4,.webm"
+              className="hidden"
+              onChange={(e) => {
+                const picked = e.target.files?.[0]
+                if (picked) setFile(picked)
+              }}
+            />
+          </div>
+
+          <div className="mt-10 grid gap-8 sm:grid-cols-2">
+            <label className="block">
+              <span className="eyebrow">Quién puntúa</span>
+              <select
+                className="field mt-2"
+                value={provider}
+                onChange={(e) => setProvider(e.target.value)}
+                disabled={busy}
+              >
+                {PROVIDERS.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="eyebrow">Modelo</span>
               <input
-                type="checkbox"
-                checked={overrides.diarization ?? false}
-                onChange={(e) => set('diarization', e.target.checked || undefined)}
-                className="size-4 accent-sodium-500"
+                className="field mt-2"
+                placeholder={provider === 'openai' ? 'gpt-4o o el id de tu cuenta' : 'el de Gemma, si no lo cambias'}
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                disabled={busy}
+                spellCheck={false}
               />
-              Multiple speakers — label who is talking, and cut to them
+            </label>
+            <label className="block">
+              <span className="eyebrow">Encuadre</span>
+              <select
+                className="field mt-2"
+                value={layout}
+                onChange={(e) => setLayout(e.target.value)}
+                disabled={busy}
+              >
+                {LAYOUTS.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="eyebrow">Idioma</span>
+              <input
+                className="field mt-2"
+                value={lang}
+                onChange={(e) => setLang(e.target.value)}
+                disabled={busy}
+              />
             </label>
           </div>
-        </div>
+
+          <div className="mt-8 flex flex-wrap items-end gap-6">
+            <NumberField label="Clips" value={top} onChange={setTop} disabled={busy} />
+            <NumberField label="Mín s" value={minS} onChange={setMinS} disabled={busy} />
+            <NumberField label="Máx s" value={maxS} onChange={setMaxS} disabled={busy} />
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={busy || (!url.trim() && !file)}
+              onClick={() => void start()}
+            >
+              {busy ? 'Arrancando…' : 'Empezar'}
+            </button>
+          </div>
+
+          {error && (
+            <div className="mt-6">
+              <ErrorNote error={error} />
+            </div>
+          )}
+        </section>
+
+        <section className="rise" style={{ animationDelay: '160ms' }}>
+          <p className="eyebrow">Corridas</p>
+          {runs.length === 0 ? (
+            <p className="mt-4 text-sm text-ink-500">Todavía no hay ninguna.</p>
+          ) : (
+            <ul className="mt-4 divide-y divide-ink-800">
+              {runs.map((run) => (
+                <li key={run.id}>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/runs/${run.id}`)}
+                    className="flex w-full items-baseline justify-between gap-4 py-3 text-left"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm text-ink-100">{run.title}</span>
+                      <span className="mt-1 block text-xs text-ink-500">
+                        {run.provider} · {statusLabel(run.status)}
+                      </span>
+                    </span>
+                    <span className="numeric text-xs text-ink-400">
+                      {run.clips[0] ? formatDuration(run.clips.reduce((s, c) => s + c.duration, 0)) : ''}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
     </div>
-  )
-}
-
-function Selector({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  options: { value: string; label: string; disabled?: boolean }[]
-}) {
-  return (
-    <label className="block">
-      <span className="eyebrow">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="field mt-1 cursor-pointer text-sm"
-      >
-        {options.map((option) => (
-          <option
-            key={option.value}
-            value={option.value}
-            disabled={option.disabled}
-            className="bg-ink-850"
-          >
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
   )
 }
 
 function NumberField({
   label,
   value,
-  placeholder,
-  min,
-  max,
   onChange,
+  disabled,
 }: {
   label: string
-  value: number | undefined
-  placeholder: string
-  min: number
-  max: number
-  onChange: (value: number | undefined) => void
+  value: number
+  onChange: (value: number) => void
+  disabled: boolean
 }) {
   return (
-    <label className="block">
+    <label className="block w-20">
       <span className="eyebrow">{label}</span>
       <input
+        className="field numeric mt-2"
         type="number"
-        className="field numeric mt-1 text-sm"
-        placeholder={placeholder}
-        value={value ?? ''}
-        min={min}
-        max={max}
-        onChange={(e) => onChange(e.target.value ? Number(e.target.value) : undefined)}
+        value={value}
+        min={1}
+        disabled={disabled}
+        onChange={(e) => onChange(Number(e.target.value))}
       />
     </label>
   )
 }
 
-function RecentJobs({ jobs }: { jobs: Job[] }) {
-  if (jobs.length === 0) return null
-
-  return (
-    <section className="rise mt-24" style={{ animationDelay: '240ms' }}>
-      <div className="flex items-baseline justify-between border-b border-ink-800 pb-3">
-        <h2 className="eyebrow">Recent</h2>
-        <span className="numeric text-xs text-ink-600">{jobs.length}</span>
-      </div>
-
-      <ul>
-        {jobs.map((job) => (
-          <li key={job.id}>
-            <a
-              href={job.status === 'done' ? `/jobs/${job.id}/clips` : `/jobs/${job.id}`}
-              className="group grid grid-cols-[1fr_auto] items-baseline gap-4 border-b border-ink-850 py-4 transition-colors duration-200 hover:bg-ink-850/40 sm:grid-cols-[1fr_7rem_6rem_5rem]"
-            >
-              <span className="truncate text-[0.9375rem] text-ink-200 group-hover:text-ink-100">
-                {job.source?.title || 'Untitled'}
-              </span>
-              <span className="numeric hidden text-xs text-ink-500 sm:block">
-                {job.source ? formatDuration(job.source.duration_s) : '—'}
-              </span>
-              <span className="hidden text-xs text-ink-500 sm:block">{job.provider}</span>
-              <StatusTag job={job} />
-            </a>
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
-}
-
-function StatusTag({ job }: { job: Job }) {
-  const tone: Record<string, string> = {
-    done: 'text-signal-good',
-    failed: 'text-signal-bad',
-    running: 'text-sodium-500',
-    queued: 'text-ink-400',
-    cancelled: 'text-ink-500',
-  }
-  const label =
-    job.status === 'running' ? `${Math.round(job.progress * 100)}%` : job.status
-
-  return (
-    <span className={`numeric justify-self-end text-xs ${tone[job.status] ?? 'text-ink-400'}`}>
-      {label}
-    </span>
-  )
+function statusLabel(status: RawRun['status']): string {
+  if (status === 'done') return 'listo'
+  if (status === 'failed') return 'falló'
+  return 'en curso'
 }

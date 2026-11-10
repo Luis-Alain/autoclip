@@ -68,29 +68,33 @@ class OpenAIProvider(LLMProvider):
 
     async def _complete(self, system: str, user: str, config: DetectionConfig) -> str:
         client = self._client()
-        request = {
+        request: dict = {
             "model": self.model,
             "temperature": config.temperature,
+            "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
         }
-        # Only OpenAI's own endpoint reliably honours this; other vendors 400 on
-        # it, so a failed request is retried once without it.
-        try:
-            response = await client.chat.completions.create(
-                **request, response_format={"type": "json_object"}
-            )
-        except Exception as exc:
-            if _is_unsupported_parameter(exc):
-                log.debug("Endpoint rejected response_format; retrying without it.")
-                try:
-                    response = await client.chat.completions.create(**request)
-                except Exception as retry_exc:
-                    raise _translate(retry_exc, self.name, self.model) from retry_exc
-            else:
-                raise _translate(exc, self.name, self.model) from exc
+        # Reasoning models reject any temperature other than the default, and
+        # some compatible endpoints reject response_format. Drop the rejected
+        # parameter and try again instead of failing the whole moment.
+        response = None
+        last_error: Exception | None = None
+        for _ in range(3):
+            try:
+                response = await client.chat.completions.create(**request)
+                break
+            except Exception as exc:
+                last_error = exc
+                relaxed = _without_rejected_parameter(request, exc)
+                if relaxed is None:
+                    raise _translate(exc, self.name, self.model) from exc
+                log.debug("Endpoint rejected a parameter; retrying without it.")
+                request = relaxed
+        if response is None:
+            raise _translate(last_error or RuntimeError("no response"), self.name, self.model)
 
         choices = response.choices or []
         if not choices:
@@ -116,9 +120,21 @@ class OpenAIProvider(LLMProvider):
         )
 
 
-def _is_unsupported_parameter(exc: Exception) -> bool:
+def _without_rejected_parameter(request: dict, exc: Exception) -> dict | None:
+    """A copy of ``request`` with one parameter the endpoint refused removed.
+
+    Temperature is checked first: its error text also contains "unsupported",
+    which is the signal for dropping ``response_format``.
+    """
     lowered = str(exc).lower()
-    return "response_format" in lowered or "unsupported" in lowered or "unrecognized" in lowered
+    if "temperature" in lowered and "temperature" in request:
+        return {key: value for key, value in request.items() if key != "temperature"}
+    format_rejected = (
+        "response_format" in lowered or "unsupported" in lowered or "unrecognized" in lowered
+    )
+    if format_rejected and "response_format" in request:
+        return {key: value for key, value in request.items() if key != "response_format"}
+    return None
 
 
 def _translate(exc: Exception, provider: str, model: str) -> ProviderError:

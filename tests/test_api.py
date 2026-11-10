@@ -423,3 +423,12 @@ class TestSecretsNeverLeak:
 
         assert "DEADBEEF" not in paths.config_path().read_text(encoding="utf-8")
         assert config.get_secret("anthropic") == "sk-DEADBEEF"
+
+
+class TestRawRuns:
+    def test_lists_nothing_before_the_first_run(self, client: TestClient) -> None:
+        assert client.get("/api/raw/runs").json() == []
+
+    def test_rejects_a_run_with_no_video(self, client: TestClient) -> None:
+        response = client.post("/api/raw/runs", data={"lang": "es"})
+        assert response.status_code == 400
