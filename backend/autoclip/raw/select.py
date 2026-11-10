@@ -39,7 +39,7 @@ from .models import CandidatesArtifact, MomentCandidate, RawClip, write_model
 
 log = logging.getLogger(__name__)
 
-PROMPT_VERSION = "highlight_raw_v1"
+PROMPT_VERSION = "highlight_score_v1"
 
 #: One moment per call. The local pass already split the VOD; asking the model
 #: for several clips inside one moment just re-merges what we separated.

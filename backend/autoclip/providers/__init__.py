@@ -19,6 +19,7 @@ from .base import (
     TranscriptWindow,
 )
 from .gemini_provider import GeminiProvider
+from .mlx_provider import MlxProvider
 from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
 
@@ -30,6 +31,7 @@ __all__ = [
     "DetectionConfig",
     "GeminiProvider",
     "LLMProvider",
+    "MlxProvider",
     "OllamaProvider",
     "OpenAIProvider",
     "ProviderError",
@@ -45,6 +47,7 @@ PROVIDERS: dict[str, type[LLMProvider]] = {
     "openai": OpenAIProvider,
     "gemini": GeminiProvider,
     "ollama": OllamaProvider,
+    "mlx": MlxProvider,
 }
 
 

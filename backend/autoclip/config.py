@@ -34,7 +34,7 @@ KEYRING_SERVICE = "autoclip"
 #: stored under the old name aren't silently lost; writes always use the new one.
 LEGACY_KEYRING_SERVICE = "clipforge"
 
-ProviderName = Literal["anthropic", "openai", "gemini", "ollama"]
+ProviderName = Literal["anthropic", "openai", "gemini", "ollama", "mlx"]
 
 #: Providers that authenticate with an API key. Ollama runs locally and needs none.
 KEYED_PROVIDERS: tuple[str, ...] = ("anthropic", "openai", "gemini")
@@ -117,6 +117,7 @@ class Settings(BaseModel):
             "openai": ProviderSettings(model="gpt-4o"),
             "gemini": ProviderSettings(model="gemini-2.0-flash"),
             "ollama": ProviderSettings(model="", base_url="http://localhost:11434"),
+            "mlx": ProviderSettings(model="lmstudio-community/gemma-4-12B-it-MLX-8bit"),
         }
     )
     whisper: WhisperSettings = Field(default_factory=WhisperSettings)

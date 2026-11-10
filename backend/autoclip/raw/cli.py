@@ -17,6 +17,16 @@ from .. import config
 console = Console()
 
 
+def _default_provider() -> str:
+    """Gemma on the M-series GPU when this machine can run it; otherwise the saved provider."""
+    import platform
+    import sys
+
+    if sys.platform == "darwin" and platform.machine() == "arm64":
+        return "mlx"
+    return ""
+
+
 def raw(
     target: str = typer.Argument(..., help="Path to a video file, or a YouTube link."),
     lang: str = typer.Option("es", "--lang", help="Spoken language: es, en, ... or auto."),
@@ -27,7 +37,18 @@ def raw(
     min_s: float = typer.Option(15.0, "--min", help="Minimum clip length in seconds."),
     max_s: float = typer.Option(60.0, "--max", help="Maximum clip length in seconds."),
     provider: str = typer.Option(
-        "", "--provider", "-p", help="LLM provider (ollama, gemini, openai, anthropic)."
+        "",
+        "--provider",
+        "-p",
+        help="Who scores the moments: mlx (Gemma on the Apple GPU, the default on "
+        "this Mac), openai, ollama, gemini, or anthropic.",
+    ),
+    model: str = typer.Option(
+        "",
+        "--model",
+        "-m",
+        help="Model id for this run. mlx defaults to "
+        "lmstudio-community/gemma-4-12B-it-MLX-8bit. openai takes any id your key can call.",
     ),
     style: str = typer.Option("", "--style", "-s", help="Caption style (see `autoclip styles`)."),
     layout: str = typer.Option(
@@ -65,6 +86,8 @@ def raw(
         raise typer.Exit(2) from exc
 
     settings = config.load()
+    if not provider:
+        provider = _default_provider()
     # Absolute: upstream's caption export runs ffmpeg from another working
     # directory, where a relative output path would point somewhere else.
     out = out.expanduser().resolve()
@@ -90,6 +113,7 @@ def raw(
         min_s=min_s,
         max_s=max_s,
         provider=provider or None,
+        model=model,
         style=style,
         layout=layout,  # type: ignore[arg-type]  # validated above
         cam=cam_rect,

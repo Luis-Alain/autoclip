@@ -198,7 +198,36 @@ class TestRegistry:
     def test_all_four_providers_are_registered(self) -> None:
         from autoclip.providers import PROVIDERS
 
-        assert set(PROVIDERS) == {"anthropic", "openai", "gemini", "ollama"}
+        assert set(PROVIDERS) == {"anthropic", "openai", "gemini", "ollama", "mlx"}
+
+    def test_mlx_needs_no_key_and_defaults_to_gemma(self) -> None:
+        from autoclip.config import Settings
+        from autoclip.providers import build_provider
+        from autoclip.providers.mlx_provider import DEFAULT_MODEL, _format_prompt
+
+        provider = build_provider("mlx", Settings())
+        assert provider.requires_key is False
+        assert provider.model == DEFAULT_MODEL
+
+        def apply(processor, config, messages, num_images=0, enable_thinking=None):
+            if enable_thinking is not None:
+                raise TypeError("this mlx-vlm build has no thinking flag")
+            return "formatted"
+
+        assert _format_prompt(apply, None, None, []) == "formatted"
+
+    async def test_mlx_health_reports_a_missing_runtime(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from autoclip.providers.mlx_provider import MlxProvider
+
+        monkeypatch.setattr(
+            "autoclip.providers.mlx_provider.runtime_status",
+            lambda: (False, "mlx-vlm is not installed"),
+        )
+        status = await MlxProvider("some/model").health_check()
+        assert status.available is False
+        assert "mlx-vlm" in status.detail
 
     def test_ollama_needs_no_key(self) -> None:
         from autoclip.providers import OllamaProvider

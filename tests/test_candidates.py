@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from autoclip.pipeline.transcript import Transcript, Word
 from autoclip.providers import ClipCandidate, ClipCandidates, LLMProvider, ProviderStatus
+from autoclip.providers.base import load_prompt
 from autoclip.raw import select
 from autoclip.raw.candidates import CONTEXT_S, build_candidates
 from autoclip.raw.models import CandidatesArtifact, read_model
@@ -55,6 +56,13 @@ def _wav(path: Path, amplitudes: list[tuple[float, int]], rate: int = 16_000) ->
         handle.setsampwidth(2)
         handle.setframerate(rate)
         handle.writeframes(struct.pack("<" + "h" * len(samples), *samples))
+
+
+def test_score_prompt_judges_one_moment_and_allows_rejecting_it() -> None:
+    prompt = load_prompt(select.PROMPT_VERSION)
+    assert select.PROMPT_VERSION == "highlight_score_v1"
+    assert '{"clips": []}' in prompt
+    assert "one proposed moment" in prompt
 
 
 def test_topic_shift_opens_a_candidate_at_the_change() -> None:

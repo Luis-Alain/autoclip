@@ -69,6 +69,8 @@ class RawOptions:
     min_s: float = 15.0
     max_s: float = 60.0
     provider: str | None = None
+    #: Empty keeps the model configured for that provider.
+    model: str = ""
     style: str = ""
     #: auto: split where the webcam overlay is on screen, blur for gameplay
     #: without it, face crop for talking-head scenes. Or force one of them.
@@ -129,6 +131,7 @@ class RawRunner:
     # -- run -----------------------------------------------------------------
 
     async def run(self) -> RawResult:
+        self._check_scorer()
         if not report().ffmpeg.has_libass:
             # Checked up front: captions are part of every clip, so without
             # libass there is no output — better to fail before transcribing.
@@ -153,6 +156,17 @@ class RawRunner:
         return RawResult(folder=self.folder, clips=clips, rows=rows, warnings=self.warnings)
 
     # -- stages --------------------------------------------------------------
+
+    def _check_scorer(self) -> None:
+        """Fail before transcribing when the chosen local model cannot run."""
+        name = self.options.provider or self.settings.active_provider
+        if name != "mlx":
+            return
+        from ..providers.mlx_provider import runtime_status
+
+        ok, detail = runtime_status()
+        if not ok:
+            raise RunError(detail)
 
     def _prepare(self) -> Path:
         audio = self.work / "audio.wav"
@@ -204,7 +218,15 @@ class RawRunner:
 
     async def _highlights(self, transcript: Transcript, silences: list[Silence]) -> list[RawClip]:
         path = self.folder / "highlights.json"
-        provider = build_provider(self.options.provider or None, self.settings)
+        settings = self.settings
+        provider_name = self.options.provider or settings.active_provider
+        if self.options.model:
+            settings = settings.model_copy(deep=True)
+            current = settings.provider(provider_name)
+            settings.providers[provider_name] = current.model_copy(
+                update={"model": self.options.model}
+            )
+        provider = build_provider(provider_name, settings)
         params = {
             "provider": provider.name,
             "model": provider.model,

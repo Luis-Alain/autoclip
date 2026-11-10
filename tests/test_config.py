@@ -15,7 +15,7 @@ def test_defaults_load_without_a_config_file() -> None:
     assert settings.active_provider == "anthropic"
     assert settings.whisper.model == "small"
     assert settings.export.loudness_lufs == -14.0
-    assert set(settings.providers) == {"anthropic", "openai", "gemini", "ollama"}
+    assert set(settings.providers) == {"anthropic", "openai", "gemini", "ollama", "mlx"}
 
 
 def test_settings_round_trip() -> None:

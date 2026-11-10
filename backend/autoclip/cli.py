@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import shutil
 import sys
 from pathlib import Path
@@ -301,6 +302,17 @@ def doctor() -> None:
             f"{model}" if has_key else "no API key stored",
         )
 
+    mlx_active = " [cyan](active)[/cyan]" if settings.active_provider == "mlx" else ""
+    mlx_model = settings.provider("mlx").model or "no model set"
+    if importlib.util.find_spec("mlx_vlm") is not None:
+        prov_table.add_row(f"mlx{mlx_active}", OK, mlx_model)
+    else:
+        prov_table.add_row(
+            f"mlx{mlx_active}",
+            WARN,
+            "mlx-vlm not installed (Apple Silicon only; `uv sync` on an arm64 Mac)",
+        )
+
     ollama_active = " [cyan](active)[/cyan]" if settings.active_provider == "ollama" else ""
     if deps.ollama_running:
         model_list = ", ".join(deps.ollama_models[:4]) or "no models pulled"
@@ -310,8 +322,11 @@ def doctor() -> None:
             f"ollama{ollama_active}", WARN, "not running on localhost:11434 (optional)"
         )
 
-    if not any(config.get_secret(n, settings) for n in config.KEYED_PROVIDERS) and not (
-        deps.ollama_running
+    mlx_ready = importlib.util.find_spec("mlx_vlm") is not None
+    if (
+        not any(config.get_secret(n, settings) for n in config.KEYED_PROVIDERS)
+        and not deps.ollama_running
+        and not mlx_ready
     ):
         remediation.append(
             "No LLM provider is usable yet. Add an API key with "
